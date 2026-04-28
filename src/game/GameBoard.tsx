@@ -694,8 +694,8 @@ export const GameBoard: React.FC = () => {
                         )}
                         {nextPolicy.min_salary_set !== null && (
                           <div className="flex justify-between text-[9px] font-black uppercase">
-                            <span className="text-slate-400">Min Wage</span>
-                            <span className="text-amber-500">${nextPolicy.min_salary_set}</span>
+                            <span className="text-slate-400">Min Wage / Worker</span>
+                            <span className="text-emerald-400">+{nextPolicy.min_salary_set}</span>
                           </div>
                         )}
                       </div>
@@ -1037,8 +1037,8 @@ export const GameBoard: React.FC = () => {
                           )}
                           {activePolicy.min_salary_set !== null && (
                             <div className="flex justify-between items-center text-xs font-bold">
-                              <span className="text-slate-400 uppercase tracking-tighter">Min Salary</span>
-                              <span className="text-amber-500">${activePolicy.min_salary_set}</span>
+                              <span className="text-slate-400 uppercase tracking-tighter">Min Wage / Worker</span>
+                              <span className="text-emerald-400">+{activePolicy.min_salary_set}</span>
                             </div>
                           )}
                         </div>

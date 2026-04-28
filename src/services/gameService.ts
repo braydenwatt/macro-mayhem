@@ -339,46 +339,49 @@ export const gameService = {
     const { data: allPlayers } = await supabase.from('players').select('*').eq('game_id', gameId);
     const triggerPlayerDescriptions: string[] = [];
     const otherPlayersDescriptions: string[] = [];
+    let politicianPopDesc = '';
 
     for (const p of (allPlayers || [])) {
       let mDelta = 0;
-      let pDelta = (p.class === 'Politician') ? card.popularity_mod : 0;
-      let description = "";
+      let pDelta = 0;
+      let pDescriptions: string[] = [];
 
+      // Popularity modifications always affect the Politician and are logged separately
+      if (p.class === 'Politician' && card.popularity_mod !== 0) {
+        pDelta = card.popularity_mod;
+        // Even if the value is clamped to 0 later, we log the nominal loss/gain for clarity
+        politicianPopDesc = `politician ${pDelta > 0 ? 'gained' : 'lost'} ${Math.abs(pDelta)} popularity points`;
+      }
+
+      // Robbery and Car Breakdown only affect the drawing player
       if (p.id === playerId) {
         if (card.id === 'robbery') {
           mDelta = -Math.floor(p.balance / 2);
-          description = `lost half their balance (-$${Math.abs(mDelta)})`;
-        } else if (card.id === 'watergate') {
-          pDelta = -p.popularity;
-          description = `lost all popularity (-${Math.abs(pDelta)} POP)`;
+          pDescriptions.push(`lost half their balance (-$${Math.abs(mDelta)})`);
         } else if (card.id === 'car_breakdown') {
           mDelta = -20;
-          description = `car broke down (-$${Math.abs(mDelta)})`;
-        } else {
-          if (card.money_target === 'all' || card.money_target === p.class.toLowerCase()) {
-            mDelta = card.money_delta;
-            if (mDelta !== 0) {
-              description = `${mDelta > 0 ? 'gained' : 'lost'} $${Math.abs(mDelta)}`;
-            }
-          }
+          pDescriptions.push(`lost -$${Math.abs(mDelta)}`);
         }
-        
-        if (pDelta !== 0 && !description.includes('POP')) {
-          if (description) description += `, `;
-          description += `${pDelta > 0 ? 'gained' : 'lost'} ${Math.abs(pDelta)} popularity`;
-        }
-        
-        if (description) triggerPlayerDescriptions.push(description);
-      } else if (card.money_target === 'all') {
-        mDelta = card.money_delta;
-      } else if (p.class === 'Politician' && card.money_target === 'politician') {
-        mDelta = card.money_delta;
       }
 
-      // Track other players' effects (politicians gaining popularity from cards like Gov Efficiency)
-      if (p.id !== playerId && pDelta !== 0) {
-        otherPlayersDescriptions.push(`${p.name} ${pDelta > 0 ? 'gained' : 'lost'} ${Math.abs(pDelta)} popularity`);
+      // Target-based money delta applies to anyone matching the target
+      if (card.money_target === 'all' || card.money_target === p.class.toLowerCase()) {
+        if (card.id !== 'robbery' && card.id !== 'car_breakdown') {
+          mDelta += card.money_delta;
+        }
+      }
+
+      if (mDelta !== 0 && card.id !== 'robbery' && card.id !== 'car_breakdown') {
+        pDescriptions.push(`${mDelta > 0 ? 'gained' : 'lost'} $${Math.abs(mDelta)}`);
+      }
+
+      if (pDescriptions.length > 0) {
+        const descStr = pDescriptions.join(' and ');
+        if (p.id === playerId) {
+          triggerPlayerDescriptions.push(descStr);
+        } else {
+          otherPlayersDescriptions.push(`${p.class.toLowerCase()} ${descStr}`);
+        }
       }
 
       if (mDelta !== 0 || pDelta !== 0) {
@@ -390,10 +393,16 @@ export const gameService = {
       }
     }
 
-    const triggerPlayerEffectsStr = triggerPlayerDescriptions.length > 0 ? ` - ${player.name} ${triggerPlayerDescriptions.join(' and ')}` : '';
-    const otherPlayersStr = otherPlayersDescriptions.length > 0 ? ` (${otherPlayersDescriptions.join('; ')})` : '';
+    const triggerPlayerEffectsStr = triggerPlayerDescriptions.length > 0 ? `, ${player.name} ${triggerPlayerDescriptions.join(' and ')}` : '';
+    
+    // Mix other players and politician pop desc
+    const combinedOthers: string[] = [];
+    if (politicianPopDesc) combinedOthers.push(politicianPopDesc);
+    combinedOthers.push(...otherPlayersDescriptions);
+    
+    const otherPlayersStr = combinedOthers.length > 0 ? `, ${combinedOthers.join(', ')}` : '';
     const globalEffectsStr = effects.length > 0 ? ` [${effects.join(', ')}]` : '';
-    const fullLogMsg = `"${card.name}"${triggerPlayerEffectsStr}${otherPlayersStr}${globalEffectsStr}`;
+    const fullLogMsg = `${player.name} triggered ${card.name}${triggerPlayerEffectsStr}${otherPlayersStr}${globalEffectsStr}`;
     
     await this.logAction(gameId, playerId, 'CHANCE', fullLogMsg);
     await supabase.from('games').update({ last_action_message: `CHANCE: ${fullLogMsg}` }).eq('id', gameId);
@@ -578,11 +587,16 @@ export const gameService = {
       }
     }
 
-    await supabase.from('players').update({ vote_confirmed: false, financial_stress: false }).eq('game_id', gameId);
+    await supabase.from('players').update({ vote_confirmed: false, financial_stress: false, bonus_voting_weight: 0 }).eq('game_id', gameId);
     await supabase.from('policy_bids').delete().eq('game_id', gameId);
     await supabase.from('policy_trades').delete().eq('game_id', gameId);
     await supabase.from('games').update({ voting_active: false, current_policy_id: null }).eq('id', gameId);
-    await this.logAction(gameId, '', 'VOTE_RESULT', `The policy "${policy.name}" has ${passed ? 'PASSED' : 'FAILED'}.`);
+
+    let resultMsg = `The policy "${policy.name}" has ${passed ? 'PASSED' : 'FAILED'}.`;
+    if (passed && policy.min_salary_set) {
+      resultMsg += ` Minimum wage increased by $${policy.min_salary_set}, boosting Worker salaries!`;
+    }
+    await this.logAction(gameId, '', 'VOTE_RESULT', resultMsg);
   },
 
   async useAbility(gameId: string, player: Player, gdp: number, unemployment: number, inflation: number, param?: any): Promise<void> {

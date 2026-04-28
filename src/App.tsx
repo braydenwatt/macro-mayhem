@@ -502,7 +502,7 @@ function App() {
             </button>
           </div>
 
-          {/* Join Card */}
+          {/* Join Card */} 
           <div className="bg-slate-900 border-4 border-slate-800 p-10 rounded-[3rem] space-y-8 hover:border-emerald-500/50 transition-colors shadow-2xl group">
             <div className="w-16 h-16 bg-emerald-600 rounded-3xl flex items-center justify-center shadow-lg -rotate-3 group-hover:-rotate-6 transition-transform">
                <Users className="w-8 h-8 text-white stroke-[3px]" />

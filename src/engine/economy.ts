@@ -20,7 +20,7 @@ export const calculateSalary = (
 
   switch (playerClass) {
     case 'Worker':
-      salary = 30; // Special base for Worker
+      salary = 30 + minSalary; // Special base for Worker (Increments with min wage)
       if (unemployment <= 2) salary += 30; // 10x bonus
       break;
     case 'Businessman':
@@ -55,7 +55,7 @@ export const getSalaryDetails = (
 
   switch (playerClass) {
     case 'Worker':
-      baseSalary = 30;
+      baseSalary = 30 + minSalary; // Special base for Worker (Increments with min wage)
       if (unemployment <= 2) baseSalary += 30;
       break;
     case 'Businessman':
