@@ -10,11 +10,19 @@ export const useGameSync = (gameId: string) => {
     if (!gameId) return;
 
     const fetchData = async () => {
-      const { data: gameData } = await supabase
+      const { data: gameData, error } = await supabase
         .from('games')
         .select('*')
         .eq('id', gameId)
         .single();
+      
+      if (error || !gameData) {
+        console.error('Game not found, clearing session:', error);
+        localStorage.removeItem('eco_game_id');
+        localStorage.removeItem('eco_me');
+        window.location.reload(); // Hard reset to clear store/state
+        return;
+      }
       
       const { data: playerData } = await supabase
         .from('players')

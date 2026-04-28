@@ -3,39 +3,50 @@ import { GameBoard } from './game/GameBoard';
 import { useGameStore } from './hooks/useGameStore';
 import { useGameSync } from './hooks/useGameSync';
 import { gameService } from './services/gameService';
-import { PlayerClass, Player } from './types/game';
-import { Users, Plus, Play, UserCircle, Copy, CheckCircle2, Coins, Milestone, Info } from 'lucide-react';
+import { PlayerClass, Player, GameState } from './types/game';
+import { getSalaryDetails } from './engine/economy';
+import { Users, Plus, Play, UserCircle, Copy, CheckCircle2, Coins, Milestone, Info, LogOut } from 'lucide-react';
 
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
     tag: "The Laborer",
-    desc: "Wins when unemployment is low (≤2) and they have $15. Ability: Strike (Increases Unemployment, lowers GDP).",
+    desc: "Fixed Weight: 2. Passive: rolls for unemployment at salary squares. High unemployment risks losing income.",
     icon: "🔨"
   },
   Businessman: {
     tag: "The Investor",
-    desc: "Wins when GDP is high (≥4) and they have $30. Ability: Invest (Boosts GDP directly).",
+    desc: "Fixed Weight: 1. Wins when GDP is high (≥4) and they have $300. Ability: Invest (Boosts GDP directly).",
     icon: "💼"
   },
   Banker: {
     tag: "The Regulator",
-    desc: "Wins when inflation is stable (3) and unemployment isn't maxed. Ability: Adjust Rates (Modifies Inflation).",
+    desc: "Fixed Weight: 1. Wins when inflation is stable (3). Ability: Adjust Rates (Modifies Inflation).",
     icon: "🏦"
   },
   Politician: {
     tag: "The Leader",
-    desc: "Wins with high Popularity (≥6) and stable GDP (≥3). Ability: Executive Order (Lowers Unemployment).",
+    desc: "Fixed Weight: 2. Ability: Executive Order (Forces policy outcome). Wins with high Popularity (≥6) and stable GDP (≥3).",
     icon: "⚖️"
   }
 };
 
-function PlayerInventory({ player, isMe, position }: { player: Player, isMe?: boolean, position: 'bottom' | 'top' | 'left' | 'right' }) {
+function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Player, game: GameState | null, isMe?: boolean, position: 'bottom' | 'top' | 'left' | 'right', onLeave?: () => void }) {
   const containerClasses = {
     bottom: "flex-row w-full h-24 bg-slate-900/90 backdrop-blur-xl border-t border-slate-700 px-8 py-4 items-center justify-between",
     top: "flex-row w-full h-20 bg-slate-900/60 border-b border-slate-800 px-8 py-2 items-center justify-between",
     left: "flex-col w-24 h-full bg-slate-900/40 border-r border-slate-800 py-8 px-2 items-center",
     right: "flex-col w-24 h-full bg-slate-900/40 border-l border-slate-800 py-8 px-2 items-center",
   };
+
+  const salaryInfo = game ? getSalaryDetails(
+    player.class,
+    game.gdp,
+    game.inflation,
+    game.unemployment,
+    player.popularity,
+    game.tax_rate,
+    game.min_salary
+  ) : null;
 
   return (
     <div className={`flex ${containerClasses[position]} pointer-events-auto transition-all`}>
@@ -61,6 +72,17 @@ function PlayerInventory({ player, isMe, position }: { player: Player, isMe?: bo
             <Coins className="w-4 h-4"/>${player.balance}
           </span>
         </div>
+
+        {salaryInfo && (
+          <div className="flex flex-col items-center">
+            <span className="text-[8px] font-black text-slate-500 uppercase">Expected Income</span>
+            <span className="text-xl font-black flex items-center gap-1">
+              <span className="text-amber-500">${salaryInfo.baseSalary}</span>
+              <span className="text-slate-500 text-sm mx-0.5">-</span>
+              <span className="text-blue-400">${salaryInfo.taxAmount}</span>
+            </span>
+          </div>
+        )}
         
         {player.class === 'Politician' && (
           <div className="flex flex-col items-center">
@@ -76,6 +98,16 @@ function PlayerInventory({ player, isMe, position }: { player: Player, isMe?: bo
             <span className="text-[10px] font-black text-emerald-500 uppercase tracking-tighter">At GO</span>
           </div>
         )}
+
+        {isMe && onLeave && (
+          <button 
+            onClick={onLeave}
+            className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-rose-900/40 text-slate-400 hover:text-rose-400 border border-slate-700 hover:border-rose-500/50 rounded-xl transition-all font-black text-[10px] uppercase tracking-widest"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            Leave Session
+          </button>
+        )}
       </div>
     </div>
   );
@@ -83,7 +115,7 @@ function PlayerInventory({ player, isMe, position }: { player: Player, isMe?: bo
 
 function PlayerLeaderboard({ players, me }: { players: Player[], me: Player | null }) {
   return (
-    <div className="absolute top-8 right-8 z-30 flex flex-col gap-3 w-64">
+    <div className="absolute top-4 right-4 z-30 flex flex-col gap-3 w-64">
       <div className="bg-slate-900/90 backdrop-blur-xl border-2 border-slate-800 rounded-3xl p-4 shadow-2xl overflow-hidden">
         <div className="flex justify-between items-center mb-4 px-1">
           <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Global District</span>
@@ -113,15 +145,15 @@ function PlayerLeaderboard({ players, me }: { players: Player[], me: Player | nu
                     <span className="text-[11px] font-black text-emerald-400 leading-none">${p.balance}</span>
                   </div>
                   
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">{p.class}</span>
-                    <div className="flex items-center gap-2">
-                      {p.class === 'Politician' && (
-                        <span className="text-[8px] font-black text-violet-400 uppercase">POP: {p.popularity}</span>
-                      )}
-                      <div className={`w-1.5 h-1.5 rounded-full ${p.has_acted_this_year ? 'bg-slate-700' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} title={p.has_acted_this_year ? "Ability Used" : "Ability Ready"} />
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">{p.class}</span>
+                      <div className="flex items-center gap-2">
+                        {p.class === 'Politician' && (
+                          <span className="text-[8px] font-black text-violet-400 uppercase">POP: {p.popularity}</span>
+                        )}
+                        <div className={`w-1.5 h-1.5 rounded-full ${p.has_acted_this_year ? 'bg-slate-700' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} title={p.has_acted_this_year ? "Ability Used" : "Ability Ready"} />
+                      </div>
                     </div>
-                  </div>
                 </div>
               </div>
             );
@@ -132,7 +164,7 @@ function PlayerLeaderboard({ players, me }: { players: Player[], me: Player | nu
   );
 }
 
-function Lobby({ gameId, players, me, onStart }: { gameId: string, players: Player[], me: Player | null, onStart: () => void }) {
+function Lobby({ gameId, players, me, onStart, onLeave }: { gameId: string, players: Player[], me: Player | null, onStart: () => void, onLeave: () => void }) {
   const isHost = players.length > 0 && me?.id === players[0].id;
   const [copied, setCopied] = useState(false);
 
@@ -149,7 +181,14 @@ function Lobby({ gameId, players, me, onStart }: { gameId: string, players: Play
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
       <div className="w-full max-w-2xl bg-slate-900 border-4 border-slate-800 rounded-[3rem] shadow-[0_0_100px_rgba(0,0,0,0.5)] overflow-hidden">
-        <div className="bg-emerald-600 p-10 text-center">
+        <div className="bg-emerald-600 p-10 text-center relative">
+          <button 
+            onClick={onLeave}
+            className="absolute top-6 right-6 p-3 bg-black/20 hover:bg-black/40 text-emerald-100 rounded-2xl transition-all"
+            title="Leave Lobby"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
           <span className="text-[12px] font-black text-emerald-100 uppercase tracking-[0.4em] mb-4 block">Game Lobby</span>
           <h1 className="text-5xl font-[1000] text-white tracking-tighter mb-6">READY UP</h1>
           <div 
@@ -281,6 +320,16 @@ function App() {
     }
   };
 
+  const handleLeave = () => {
+    localStorage.removeItem('eco_game_id');
+    localStorage.removeItem('eco_me');
+    useGameStore.getState().reset();
+    setActiveGameId('');
+    setUsername('');
+    setSelectedClass('');
+    setIsJoining(false);
+  };
+
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(activeGameId);
@@ -290,6 +339,18 @@ function App() {
       console.error('Failed to copy text: ', err);
     }
   };
+
+  // 1. Loading State
+  if (activeGameId && !game && isJoining) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
+        <div className="flex flex-col items-center gap-6">
+          <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin shadow-[0_0_30px_rgba(59,130,246,0.4)]" />
+          <p className="text-blue-500 font-black uppercase tracking-[0.4em] animate-pulse">Initializing District...</p>
+        </div>
+      </div>
+    );
+  }
 
   // 2. Join Form
   if (activeGameId && game && !me && isJoining) {
@@ -380,7 +441,7 @@ function App() {
 
   // 3. Lobby (Wait for start)
   if (activeGameId && game && me && !game.started) {
-    return <Lobby gameId={activeGameId} players={players} me={me} onStart={startGame} />;
+    return <Lobby gameId={activeGameId} players={players} me={me} onStart={startGame} onLeave={handleLeave} />;
   }
 
   // 4. Main Game View
@@ -396,7 +457,7 @@ function App() {
         </main>
 
         <div className="z-20 relative">
-          <PlayerInventory player={me} isMe position="bottom" />
+          <PlayerInventory player={me} game={game} isMe position="bottom" onLeave={handleLeave} />
         </div>
       </div>
     );

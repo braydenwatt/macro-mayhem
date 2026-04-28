@@ -6,10 +6,9 @@ interface GameStore {
   game: GameState | null;
   players: Player[];
   me: Player | null;
-  
-  setGame: (game: GameState) => void;
+  setGame: (game: GameState | null) => void;
   setPlayers: (players: Player[]) => void;
-  setMe: (player: Player) => void;
+  setMe: (me: Player | null) => void;
   updatePlayer: (playerId: string, updates: Partial<Player>) => void;
   updateGameState: (updates: Partial<GameState>) => void;
   
@@ -18,7 +17,15 @@ interface GameStore {
   startGame: () => Promise<void>;
   clearActionMessage: () => Promise<void>;
   resolveSquare: (type: SquareType) => Promise<void>;
-  submitBid: (vote: 'YES' | 'NO', amount: number) => Promise<void>;
+  submitVote: (vote: 'YES' | 'NO') => Promise<void>;
+  createTrade: (targetId: string, money: number, pop: number, forcedVote: 'YES' | 'NO') => Promise<void>;
+  cancelTrade: (tradeId: string) => Promise<void>;
+  respondToTrade: (tradeId: string, accept: boolean) => Promise<void>;
+  useExecutiveOrder: (outcome: 'YES' | 'NO') => Promise<void>;
+  resolveEventRoll: (type: 'VACATION' | 'PAY_EXPENSES', roll: number) => Promise<void>;
+  resolveExpenseChoice: (cardId: string) => Promise<void>;
+  clearUnemploymentPending: () => Promise<void>;
+  clearEventRollPending: () => Promise<void>;
   resolvePolicyVote: () => Promise<void>;
   getWinners: () => Promise<Player[]>;
   endTurn: () => Promise<void>;
@@ -48,17 +55,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       game: state.game ? { ...state.game, ...updates } : null,
     })),
 
+  rollDice: async () => {
+    const { game, me } = get();
+    if (!game || !me || game.current_player_id !== me.id || game.has_rolled) return;
+    await gameService.rollDice(game.id, me.id, me.position);
+  },
+
   useAbility: async (param?: any) => {
     const { game, me } = get();
-    console.log('Store useAbility called', { hasGame: !!game, hasMe: !!me, turnMatch: game?.current_player_id === me?.id });
-    if (!game || !me || game.current_player_id !== me.id) return;
-    try {
-      console.log('Invoking gameService.useAbility...');
-      await gameService.useAbility(game.id, me, game.gdp, game.unemployment, game.inflation, param);
-      console.log('gameService.useAbility completed');
-    } catch (error) {
-      console.error('Use ability failed:', error);
-    }
+    if (!game || !me) return;
+    await gameService.useAbility(game.id, me, game.gdp, game.unemployment, game.inflation, param);
   },
 
   startGame: async () => {
@@ -76,13 +82,57 @@ export const useGameStore = create<GameStore>((set, get) => ({
   resolveSquare: async (type: SquareType) => {
     const { game, me } = get();
     if (!game || !me) return;
-    await gameService.resolveSquare(game.id, me.id, type, game.gdp, game.inflation);
+    await gameService.resolveSquare(game.id, me.id, type, game.gdp, game.inflation, game.unemployment, me.popularity, game.tax_rate, game.min_salary);
   },
 
-  submitBid: async (vote: 'YES' | 'NO', amount: number) => {
+  submitVote: async (vote: 'YES' | 'NO') => {
     const { game, me } = get();
-    if (!game || !me || !game.current_policy_id) return;
-    await gameService.submitBid(game.id, me.id, game.current_policy_id, vote, amount);
+    if (!game || !me) return;
+    await gameService.submitVote(game.id, me.id, vote);
+  },
+
+  createTrade: async (targetId: string, money: number, pop: number, forcedVote: 'YES' | 'NO') => {
+    const { game, me } = get();
+    if (!game || !me) return;
+    await gameService.createTrade(game.id, me.id, targetId, money, pop, forcedVote);
+  },
+
+  cancelTrade: async (tradeId: string) => {
+    await gameService.cancelTrade(tradeId);
+  },
+
+  respondToTrade: async (tradeId: string, accept: boolean) => {
+    await gameService.respondToTrade(tradeId, accept);
+  },
+
+  useExecutiveOrder: async (outcome: 'YES' | 'NO') => {
+    const { game, me } = get();
+    if (!game || !me) return;
+    await gameService.useExecutiveOrder(game.id, me.id, outcome);
+  },
+
+  resolveEventRoll: async (type: 'VACATION' | 'PAY_EXPENSES', roll: number) => {
+    const { me } = get();
+    if (!me) return;
+    await gameService.resolveEventRoll(me.id, type, roll);
+  },
+
+  resolveExpenseChoice: async (cardId: string) => {
+    const { me } = get();
+    if (!me) return;
+    await gameService.resolveExpenseChoice(me.id, cardId);
+  },
+
+  clearUnemploymentPending: async () => {
+    const { me } = get();
+    if (!me) return;
+    await gameService.clearUnemploymentPending(me.id);
+  },
+
+  clearEventRollPending: async () => {
+    const { me } = get();
+    if (!me) return;
+    await gameService.clearEventRollPending(me.id);
   },
 
   resolvePolicyVote: async () => {
@@ -97,15 +147,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     return await gameService.getWinners(game.id, game.gdp, game.inflation, game.unemployment);
   },
 
-  rollDice: async () => {
-    const { game, me } = get();
-    if (!game || !me || game.current_player_id !== me.id || game.has_rolled) return;
-    await gameService.rollDice(game.id, me.id, me.position);
-  },
-
   endTurn: async () => {
     const { game, me, players } = get();
-    if (!game || !me || game.current_player_id !== me.id || !game.has_rolled) return;
+    if (!game || !me || game.current_player_id !== me.id || (!game.has_rolled && !me.is_waiting_at_go)) return;
     await gameService.endTurn(game.id, players, me.id);
   },
 

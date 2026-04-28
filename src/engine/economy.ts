@@ -1,7 +1,7 @@
 import { PlayerClass } from '../types/game';
 
 export const CAP_MIN = 1;
-export const CAP_MAX = 5;
+export const CAP_MAX = 10;
 
 export const clampLevel = (val: number): number => {
   return Math.max(CAP_MIN, Math.min(CAP_MAX, val));
@@ -12,26 +12,77 @@ export const calculateSalary = (
   gdp: number, 
   inflation: number, 
   unemployment: number,
-  popularity: number
+  popularity: number,
+  taxRate: number = 20,
+  minSalary: number = 0
 ): number => {
-  let salary = 5; // Base Salary
+  let salary = 50; // Default Base Salary (10x scaled)
 
   switch (playerClass) {
     case 'Worker':
-      if (unemployment <= 2) salary += 3;
+      salary = 30; // Special base for Worker
+      if (unemployment <= 2) salary += 30; // 10x bonus
       break;
     case 'Businessman':
-      if (gdp >= 4) salary += 5;
+      salary = 100; // Special base for Businessman
+      if (gdp >= 4) salary += 50; // 10x bonus
       break;
     case 'Banker':
-      if (inflation === 3) salary += 4;
+      if (inflation === 3) salary += 40; // 10x bonus
       break;
     case 'Politician':
-      if (popularity >= 6) salary += 2;
+      if (popularity >= 6) salary += 20; // 10x bonus
       break;
   }
 
-  return salary;
+  // Apply Taxation
+  const afterTax = Math.floor(salary * (1 - taxRate / 100));
+  
+  // Apply Minimum Salary Floor
+  return Math.max(minSalary, afterTax);
+};
+
+export const getSalaryDetails = (
+  playerClass: PlayerClass, 
+  gdp: number, 
+  inflation: number, 
+  unemployment: number,
+  popularity: number,
+  taxRate: number = 20,
+  minSalary: number = 0
+) => {
+  let baseSalary = 50;
+
+  switch (playerClass) {
+    case 'Worker':
+      baseSalary = 30;
+      if (unemployment <= 2) baseSalary += 30;
+      break;
+    case 'Businessman':
+      baseSalary = 100;
+      if (gdp >= 4) baseSalary += 50;
+      break;
+    case 'Banker':
+      if (inflation === 3) baseSalary += 40;
+      break;
+    case 'Politician':
+      if (popularity >= 6) baseSalary += 20;
+      break;
+  }
+
+  const taxAmount = Math.floor(baseSalary * (taxRate / 100));
+  const afterTax = baseSalary - taxAmount;
+  const finalSalary = Math.max(minSalary, afterTax);
+
+  return { baseSalary, taxAmount, finalSalary };
+};
+
+export const calculateSalaryPayout = (
+  baseSalary: number,
+  isLanding: boolean
+): number => {
+  const multiplier = isLanding ? 1.2 : 1.0;
+  return Math.floor(baseSalary * multiplier);
 };
 
 export const applyMoneyDelta = (currentBalance: number, delta: number): number => {
