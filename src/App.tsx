@@ -6,6 +6,7 @@ import { gameService } from './services/gameService';
 import { PlayerClass, Player, GameState } from './types/game';
 import { getSalaryDetails } from './engine/economy';
 import { Users, Plus, Play, UserCircle, Copy, CheckCircle2, Coins, Milestone, Info, LogOut } from 'lucide-react';
+import './utils/testHelpers'; // Initialize test mode helpers
 
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
@@ -473,9 +474,7 @@ function App() {
        
        <div className="relative z-10 w-full max-w-4xl space-y-12">
         <div className="text-center space-y-6">
-          <div className="inline-block bg-blue-600/10 border border-blue-500/20 px-6 py-2 rounded-full mb-4">
-             <span className="text-[10px] font-black text-blue-500 uppercase tracking-[0.4em]">v1.0 Internal Alpha</span>
-          </div>
+      
           <h1 className="text-[7rem] font-[1000] text-white leading-[0.8] tracking-tighter">
             MACRO<br/>
             <span className="text-blue-500">MAYHEM</span>
@@ -534,11 +533,6 @@ function App() {
            <div className="flex flex-col items-center">
              <span className="text-[10px] font-black text-slate-700 uppercase mb-2">Developed By</span>
              <span className="font-black text-slate-500 tracking-widest">MACROSOFT LABS</span>
-           </div>
-           <div className="w-px h-8 bg-slate-800 self-center" />
-           <div className="flex flex-col items-center">
-             <span className="text-[10px] font-black text-slate-700 uppercase mb-2">Engine</span>
-             <span className="font-black text-slate-500 tracking-widest">SUPABASE REALTIME</span>
            </div>
         </div>
       </div>

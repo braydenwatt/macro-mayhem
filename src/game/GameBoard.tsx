@@ -695,7 +695,7 @@ export const GameBoard: React.FC = () => {
                         {nextPolicy.min_salary_set !== null && (
                           <div className="flex justify-between text-[9px] font-black uppercase">
                             <span className="text-slate-400">Min Wage</span>
-                            <span className="text-blue-400">${nextPolicy.min_salary_set}</span>
+                            <span className="text-amber-500">${nextPolicy.min_salary_set}</span>
                           </div>
                         )}
                       </div>
@@ -812,8 +812,8 @@ export const GameBoard: React.FC = () => {
         <div className="flex flex-col items-center justify-center px-4">
           <span className="text-3xl font-[1000] text-white tracking-tighter">YEAR {game?.year || 1}</span>
           <div className="flex gap-3 mt-1">
-            <span className="text-[10px] text-amber-500 font-black uppercase tracking-widest">Tax: {game?.tax_rate}%</span>
-            <span className="text-[10px] text-blue-400 font-black uppercase tracking-widest">Min Wage: ${game?.min_salary}</span>
+            <span className="text-[10px] text-blue-400 font-black uppercase tracking-widest">Tax: {game?.tax_rate}%</span>
+            <span className="text-[10px] text-amber-500 font-black uppercase tracking-widest">Min Wage: ${game?.min_salary}</span>
           </div>
         </div>
       </div>
@@ -1038,7 +1038,7 @@ export const GameBoard: React.FC = () => {
                           {activePolicy.min_salary_set !== null && (
                             <div className="flex justify-between items-center text-xs font-bold">
                               <span className="text-slate-400 uppercase tracking-tighter">Min Salary</span>
-                              <span className="text-blue-400">${activePolicy.min_salary_set}</span>
+                              <span className="text-amber-500">${activePolicy.min_salary_set}</span>
                             </div>
                           )}
                         </div>
@@ -1048,7 +1048,27 @@ export const GameBoard: React.FC = () => {
                 </div>
                 
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center text-xs font-black text-slate-500 uppercase"><span>Your Weight</span><span className="text-white text-lg">{me?.class === 'Worker' || me?.class === 'Politician' ? '2' : '1'} VOTES</span></div>
+                  <div className="flex justify-between items-center text-xs font-black text-slate-500 uppercase">
+                    <span>Your Weight</span>
+                    <span className="text-white text-lg">
+                      {(() => {
+                        const baseWeight = me?.class === 'Worker' || me?.class === 'Politician' ? 2 : 1;
+                        const bonus = me?.bonus_voting_weight ?? 0;
+                        const total = baseWeight + bonus;
+                        console.log('🗳️ VOTING WEIGHT RENDER DEBUG:', {
+                          timestamp: new Date().toISOString(),
+                          playerClass: me?.class,
+                          baseWeight,
+                          bonus_voting_weight: me?.bonus_voting_weight,
+                          bonus,
+                          total,
+                          meId: me?.id,
+                          fullPlayer: me
+                        });
+                        return bonus > 0 ? `${total} VOTES (+${bonus})` : `${total} VOTES`;
+                      })()}
+                    </span>
+                  </div>
                   <div className="flex gap-3">
                     <button onClick={() => submitVote('YES')} className={`flex-1 py-4 rounded-xl font-black text-lg transition-all ${me?.vote_confirmed ? 'opacity-50 pointer-events-none' : ''} bg-emerald-600 text-white shadow-[0_4px_0_rgb(5,150,105)] active:translate-y-1`}>YES</button>
                     <button onClick={() => submitVote('NO')} className={`flex-1 py-4 rounded-xl font-black text-lg transition-all ${me?.vote_confirmed ? 'opacity-50 pointer-events-none' : ''} bg-rose-600 text-white shadow-[0_4px_0_rgb(225,29,72)] active:translate-y-1`}>NO</button>

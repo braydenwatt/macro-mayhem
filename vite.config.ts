@@ -13,4 +13,7 @@ export default defineConfig({
   server: {
     allowedHosts: true,
   },
+  define: {
+    'import.meta.env.VITE_TEST_MODE': JSON.stringify(process.env.TEST_MODE === 'true')
+  },
 })

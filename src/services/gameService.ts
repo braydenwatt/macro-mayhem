@@ -159,13 +159,21 @@ export const gameService = {
     else if (game.unemployment >= 3 && roll >= 6) isUnemployed = true;
 
     const baseSalary = calculateSalary(player.class, game.gdp, game.inflation, game.unemployment, player.popularity, game.tax_rate, game.min_salary);
-    const finalPayout = isUnemployed ? 0 : calculateSalaryPayout(baseSalary, isLanding);
+    let finalPayout = isUnemployed ? 0 : calculateSalaryPayout(baseSalary, isLanding);
+    
+    // Apply minimum salary floor even when unemployed
+    if (game.min_salary > finalPayout) {
+      finalPayout = game.min_salary;
+    }
 
     await supabase.from('players').update({ 
       balance: player.balance + finalPayout
     }).eq('id', playerId);
 
-    const resultMsg = isUnemployed ? "UNEMPLOYED this cycle (Received $0)." : `Received $${finalPayout} salary.`;
+    let resultMsg = isUnemployed ? `UNEMPLOYED this cycle but received $${finalPayout} (minimum wage protection).` : `Received $${finalPayout} salary.`;
+    if (isUnemployed && game.min_salary > 0) {
+      resultMsg = `UNEMPLOYED this cycle but received $${finalPayout} (minimum wage).`;
+    }
     await this.logAction(game.id, playerId, 'SALARY', `${player.name} rolled a ${roll} for unemployment: ${resultMsg}`);
     
     return { isUnemployed, finalPayout, roll };
@@ -223,7 +231,16 @@ export const gameService = {
       await supabase.from('games').update({ inflation: Math.max(1, game.inflation - 1) }).eq('id', game.id);
       effectMsg = " (Inflation ↓)";
     } else if (card.id === 'pr_campaign') {
-      await supabase.from('players').update({ bonus_voting_weight: (player.bonus_voting_weight || 0) + 1 }).eq('id', playerId);
+      const newWeight = (player.bonus_voting_weight || 0) + 1;
+      console.log('💰 PR_CAMPAIGN BONUS DEBUG:', {
+        playerId,
+        oldWeight: player.bonus_voting_weight,
+        newWeight,
+        player
+      });
+      await supabase.from('players').update({ bonus_voting_weight: newWeight }).eq('id', playerId);
+      const { data: updated } = await supabase.from('players').select('bonus_voting_weight').eq('id', playerId).single();
+      console.log('✅ PR_CAMPAIGN POST-UPDATE VERIFICATION:', { updated });
       effectMsg = " (+1 Voting Weight next round)";
     } else if (card.id === 'community_fund') {
       await supabase.from('players').update({ popularity: Math.min(10, player.popularity + 1) }).eq('id', playerId);
@@ -320,30 +337,48 @@ export const gameService = {
     await supabase.from('games').update(chanceData).eq('id', gameId);
 
     const { data: allPlayers } = await supabase.from('players').select('*').eq('game_id', gameId);
-    let triggerPlayerEffects = "";
+    const triggerPlayerDescriptions: string[] = [];
+    const otherPlayersDescriptions: string[] = [];
 
     for (const p of (allPlayers || [])) {
       let mDelta = 0;
       let pDelta = (p.class === 'Politician') ? card.popularity_mod : 0;
+      let description = "";
 
       if (p.id === playerId) {
         if (card.id === 'robbery') {
           mDelta = -Math.floor(p.balance / 2);
+          description = `lost half their balance (-$${Math.abs(mDelta)})`;
         } else if (card.id === 'watergate') {
           pDelta = -p.popularity;
+          description = `lost all popularity (-${Math.abs(pDelta)} POP)`;
         } else if (card.id === 'car_breakdown') {
           mDelta = -20;
+          description = `car broke down (-$${Math.abs(mDelta)})`;
         } else {
           if (card.money_target === 'all' || card.money_target === p.class.toLowerCase()) {
             mDelta = card.money_delta;
+            if (mDelta !== 0) {
+              description = `${mDelta > 0 ? 'gained' : 'lost'} $${Math.abs(mDelta)}`;
+            }
           }
         }
         
-        // Capture effects for the person who landed on the square for the log
-        if (mDelta !== 0) triggerPlayerEffects += `${mDelta > 0 ? '+' : ''}$${mDelta}`;
-        if (pDelta !== 0) triggerPlayerEffects += `${triggerPlayerEffects ? ' ' : ''}${pDelta > 0 ? '+' : ''}${pDelta} POP`;
+        if (pDelta !== 0 && !description.includes('POP')) {
+          if (description) description += `, `;
+          description += `${pDelta > 0 ? 'gained' : 'lost'} ${Math.abs(pDelta)} popularity`;
+        }
+        
+        if (description) triggerPlayerDescriptions.push(description);
       } else if (card.money_target === 'all') {
         mDelta = card.money_delta;
+      } else if (p.class === 'Politician' && card.money_target === 'politician') {
+        mDelta = card.money_delta;
+      }
+
+      // Track other players' effects (politicians gaining popularity from cards like Gov Efficiency)
+      if (p.id !== playerId && pDelta !== 0) {
+        otherPlayersDescriptions.push(`${p.name} ${pDelta > 0 ? 'gained' : 'lost'} ${Math.abs(pDelta)} popularity`);
       }
 
       if (mDelta !== 0 || pDelta !== 0) {
@@ -355,11 +390,13 @@ export const gameService = {
       }
     }
 
-    const finalEffectsStr = [triggerPlayerEffects, ...effects].filter(Boolean).join(" ");
-    const fullLogMsg = `Triggered "${card.name}"${finalEffectsStr ? `: ${finalEffectsStr}` : ''}`;
+    const triggerPlayerEffectsStr = triggerPlayerDescriptions.length > 0 ? ` - ${player.name} ${triggerPlayerDescriptions.join(' and ')}` : '';
+    const otherPlayersStr = otherPlayersDescriptions.length > 0 ? ` (${otherPlayersDescriptions.join('; ')})` : '';
+    const globalEffectsStr = effects.length > 0 ? ` [${effects.join(', ')}]` : '';
+    const fullLogMsg = `"${card.name}"${triggerPlayerEffectsStr}${otherPlayersStr}${globalEffectsStr}`;
     
     await this.logAction(gameId, playerId, 'CHANCE', fullLogMsg);
-    await supabase.from('games').update({ last_action_message: `CHANCE: ${player.name} - ${fullLogMsg}` }).eq('id', gameId);
+    await supabase.from('games').update({ last_action_message: `CHANCE: ${fullLogMsg}` }).eq('id', gameId);
   },
 
   async startPolicyVote(gameId: string): Promise<void> {
@@ -514,13 +551,22 @@ export const gameService = {
     }
 
     if (passed) {
+      const newMinSalary = policy.min_salary_set !== undefined ? game.min_salary + policy.min_salary_set : game.min_salary;
       const gdpUpdate = {
         gdp: Math.max(1, Math.min(10, game.gdp + policy.gdp_mod)),
         inflation: Math.max(1, Math.min(10, game.inflation + policy.inflation_mod)),
         unemployment: Math.max(1, Math.min(10, game.unemployment + policy.unemployment_mod)),
         tax_rate: Math.max(0, game.tax_rate + (policy.tax_mod || 0)),
-        min_salary: policy.min_salary_set !== undefined ? policy.min_salary_set : game.min_salary
+        min_salary: newMinSalary
       };
+      if (policy.min_salary_set !== undefined) {
+        console.log('💵 MIN_SALARY INCREASE DEBUG:', {
+          oldMinSalary: game.min_salary,
+          minSalarySetValue: policy.min_salary_set,
+          newMinSalary,
+          policyName: policy.name
+        });
+      }
       await supabase.from('games').update(gdpUpdate).eq('id', gameId);
 
       const { data: players } = await supabase.from('players').select('*').eq('game_id', gameId);
