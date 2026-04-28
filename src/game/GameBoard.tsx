@@ -946,7 +946,7 @@ export const GameBoard: React.FC = () => {
                     </h2>
                     {spinResult && (
                       <p className={`text-4xl font-[1000] text-rose-400`}>
-                        -${Math.floor((spinResult * calculateSalary(me.class, game.gdp, game.inflation, game.unemployment, me.popularity, game.tax_rate, game.min_salary)) / 5)}
+                        -${Math.floor((spinResult * calculateSalary(me!.class, game!.gdp, game!.inflation, game!.unemployment, me!.popularity, game!.tax_rate, game!.min_salary)) / 5)}
                       </p>
                     )}
                     {!isSpinning && spinResult && (
@@ -966,7 +966,7 @@ export const GameBoard: React.FC = () => {
 
                 <div className="flex flex-col gap-3 w-full">
                   {drawnExpenseCards.map((card) => {
-                    const baseCost = Math.floor(calculateSalary(me.class, game.gdp, game.inflation, game.unemployment, me.popularity, game.tax_rate, game.min_salary) / 5);
+                    const baseCost = Math.floor(calculateSalary(me!.class, game!.gdp, game!.inflation, game!.unemployment, me!.popularity, game!.tax_rate, game!.min_salary) / 5);
                     const cost = card.cost_multiplier * baseCost;
                     return (
                       <button 
