@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as PIXI from 'pixi.js';
 import { useGameStore } from '../hooks/useGameStore';
-import { SquareType, Player, PolicyTrade } from '../types/game';
+import { SquareType, Player, PolicyTrade, BusinessOwnership, EconomicIndicator } from '../types/game';
 import { supabase } from '../services/supabase';
 import { gameService, CHEAP_EXPENSES, SPECIAL_EXPENSES } from '../services/gameService';
 import { calculateSalary } from '../engine/economy';
@@ -53,6 +53,29 @@ const COLORS: Record<SquareType, number> = {
   CHANCE: 0xeab308,
 };
 
+const BUSINESS_SQUARE_TYPES: SquareType[] = ['VACATION', 'PAY_EXPENSES'];
+
+type SquareGraphics = {
+  container: PIXI.Container;
+  bg: PIXI.Graphics;
+  header: PIXI.Graphics;
+  factory: PIXI.Container;
+  stroke: PIXI.Graphics;
+};
+
+const drawFactorySilhouette = (graphics: PIXI.Graphics) => {
+  graphics.clear();
+  graphics.roundRect(0, 7, 28, 12, 2).fill(0x000000);
+  graphics.rect(3, 4, 5, 5).fill(0x000000);
+  graphics.rect(10, 2, 5, 7).fill(0x000000);
+  graphics.rect(17, 5, 5, 4).fill(0x000000);
+  graphics.rect(23, 1, 3, 8).fill(0x000000);
+  graphics.rect(8, 11, 4, 8).fill(0x000000);
+  graphics.rect(16, 11, 4, 8).fill(0x000000);
+};
+
+const isBusinessSquare = (type: SquareType) => BUSINESS_SQUARE_TYPES.includes(type);
+
 const TARGET_LABELS: Record<string, string> = {
   all: 'Everyone',
   worker: 'Workers',
@@ -76,27 +99,37 @@ export const GameBoard: React.FC = () => {
   const boardContainerRef = useRef<PIXI.Container | null>(null);
   const diceContainerRef = useRef<PIXI.Container | null>(null);
   const playerTokens = useRef<Map<string, PIXI.Graphics>>(new Map());
+  const squareRefs = useRef<Map<number, SquareGraphics>>(new Map());
   const visualPositions = useRef<Map<string, number>>(new Map());
   const lastResolvedPos = useRef<number>(-1);
   const pauseMovementRef = useRef(false);
 
   const { 
     game, players, me, 
-    rollDice, endTurn, useAbility,
+    rollDice, endTurn, useAbility, purchaseBusiness, resolveBankerGoChoice,
     resolveSquare, submitVote, resolvePolicyVote, confirmVoteReady,
     getWinners, clearActionMessage,    createTrade, cancelTrade, respondToTrade, useExecutiveOrder,
     resolveEventRoll, resolveExpenseChoice, clearUnemploymentPending, clearEventRollPending
   } = useGameStore();
 
+  const meRef = useRef<Player | null>(null);
+  const purchaseBusinessRef = useRef<((squareIndex: number, squareType: SquareType) => Promise<void>) | null>(null);
+  const resolveBankerGoChoiceRef = useRef<((indicator: EconomicIndicator, direction: 'up' | 'down') => Promise<void>) | null>(null);
+  const businessPlacementModeRef = useRef(false);
+  const hoveredBusinessSquareRef = useRef<number | null>(null);
+
   const [isRolling, setIsRolling] = useState(false);
   const [isActing, setIsActing] = useState(false);
   const [isMoving, setIsMoving] = useState(false);
-  const [showAbilityInfo, setShowAbilityInfo] = useState(false);
   const [activePolicy, setActivePolicy] = useState<any>(null);
   const [winners, setWinners] = useState<Player[]>([]);
-  const [bankerChoice, setBankerChoice] = useState<boolean>(false);
   const [bids, setBids] = useState<any[]>([]);
   const [timeLeft, setTimeLeft] = useState<number>(30);
+  const [businesses, setBusinesses] = useState<BusinessOwnership[]>([]);
+  const [businessPlacementMode, setBusinessPlacementMode] = useState(false);
+  const [businessPlacementMessage, setBusinessPlacementMessage] = useState<string | null>(null);
+  const [hoveredBusinessSquare, setHoveredBusinessSquare] = useState<number | null>(null);
+  const [selectedBankerIndicator, setSelectedBankerIndicator] = useState<EconomicIndicator>('gdp');
   
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [tradeMoney, setTradeMoney] = useState(0);
@@ -119,6 +152,26 @@ export const GameBoard: React.FC = () => {
   const [showEventModal, setShowEventModal] = useState(false);
   const [currentEventType, setCurrentEventType] = useState<'VACATION' | 'PAY_EXPENSES' | null>(null);
   const [drawnExpenseCards, setDrawnExpenseCards] = useState<any[]>([]);
+
+  useEffect(() => {
+    meRef.current = me;
+  }, [me]);
+
+  useEffect(() => {
+    purchaseBusinessRef.current = purchaseBusiness;
+  }, [purchaseBusiness]);
+
+  useEffect(() => {
+    resolveBankerGoChoiceRef.current = resolveBankerGoChoice;
+  }, [resolveBankerGoChoice]);
+
+  useEffect(() => {
+    businessPlacementModeRef.current = businessPlacementMode;
+  }, [businessPlacementMode]);
+
+  useEffect(() => {
+    hoveredBusinessSquareRef.current = hoveredBusinessSquare;
+  }, [hoveredBusinessSquare]);
 
   // Sync Local Modal State with Backend Flags (Only one-way: Open only)
   useEffect(() => {
@@ -324,6 +377,26 @@ export const GameBoard: React.FC = () => {
     }
   }, [game?.id]);
 
+  useEffect(() => {
+    if (!game?.id) {
+      setBusinesses([]);
+      return;
+    }
+
+    const fetchBusinesses = async () => {
+      const { data } = await supabase.from('businesses').select('*').eq('game_id', game.id);
+      setBusinesses((data || []) as BusinessOwnership[]);
+    };
+
+    fetchBusinesses();
+
+    const channel = supabase.channel(`businesses:${game.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'businesses', filter: `game_id=eq.${game.id}` }, fetchBusinesses)
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [game?.id]);
+
   const handleRoll = useCallback(async () => {
     if (isRolling || isMoving) return;
     setIsRolling(true);
@@ -333,8 +406,14 @@ export const GameBoard: React.FC = () => {
   }, [rollDice, isRolling, isMoving]);
 
   const handleAbilityClick = useCallback(async () => {
-    if (me?.class === 'Banker') {
-      setBankerChoice(true);
+    if (me?.class === 'Businessman') {
+      if (businessPlacementMode) {
+        setBusinessPlacementMode(false);
+        setBusinessPlacementMessage(null);
+        return;
+      }
+      setBusinessPlacementMode(true);
+      setBusinessPlacementMessage('Select a square to place your business');
       return;
     }
     setIsActing(true);
@@ -343,17 +422,25 @@ export const GameBoard: React.FC = () => {
     } finally {
       setIsActing(false);
     }
-  }, [me?.class, useAbility]);
+  }, [businessPlacementMode, me?.class, useAbility]);
 
-  const handleBankerAction = useCallback(async (dir: 'up' | 'down') => {
+  const handleBankerAction = useCallback(async (direction: 'up' | 'down') => {
+    if (!me?.banker_go_pending) return;
     setIsActing(true);
     try {
-      await useAbility(dir);
+      await resolveBankerGoChoiceRef.current?.(selectedBankerIndicator, direction);
     } finally {
       setIsActing(false);
-      setBankerChoice(false);
     }
-  }, [useAbility]);
+  }, [me?.banker_go_pending, selectedBankerIndicator]);
+
+  const handleSquarePurchase = useCallback(async (squareIndex: number, squareType: SquareType) => {
+    if (!businessPlacementModeRef.current || !meRef.current || meRef.current.class !== 'Businessman') return;
+    await purchaseBusinessRef.current?.(squareIndex, squareType);
+    setBusinessPlacementMode(false);
+    setBusinessPlacementMessage(null);
+    setHoveredBusinessSquare(null);
+  }, []);
 
   const handleResolveVote = useCallback(async () => {
     await resolvePolicyVote();
@@ -469,38 +556,101 @@ export const GameBoard: React.FC = () => {
       app.stage.addChild(diceContainer);
       diceContainerRef.current = diceContainer;
 
+      squareRefs.current.clear();
+      const GUTTER = 4; // Total space between cards
+      const CARD_SIZE = TILE_SIZE - GUTTER;
+      const OFFSET = GUTTER / 2;
+
       for (let i = 0; i < TOTAL_SQUARES; i++) {
         const data = BOARD_LAYOUT[i];
         const color = COLORS[data.type];
         const pos = getSquarePosition(i);
         const square = new PIXI.Container();
         square.x = pos.x; square.y = pos.y;
+        square.eventMode = 'static';
+        square.cursor = 'pointer';
+        square.hitArea = new PIXI.Rectangle(0, 0, TILE_SIZE, TILE_SIZE);
         boardContainer.addChild(square);
 
         const bg = new PIXI.Graphics();
-        bg.roundRect(0, 0, TILE_SIZE, TILE_SIZE, 8);
+        bg.roundRect(OFFSET, OFFSET, CARD_SIZE, CARD_SIZE, 8);
         bg.fill({ color: 0x1e293b, alpha: 0.9 });
-        bg.setStrokeStyle({ width: 3, color: 0x334155 });
-        bg.stroke();
         square.addChild(bg);
 
+        const stroke = new PIXI.Graphics();
+        stroke.roundRect(OFFSET, OFFSET, CARD_SIZE, CARD_SIZE, 8);
+        stroke.stroke({ width: 3, color: 0x334155, alignment: 0 }); // alignment 0 is internal
+        square.addChild(stroke);
+
         const header = new PIXI.Graphics();
-        header.rect(0, 0, TILE_SIZE, 12); header.fill(color);
+        header.rect(OFFSET, OFFSET, CARD_SIZE, 12); 
+        header.fill(color);
+        header.mask = bg
         square.addChild(header);
+
+        const factoryContainer = new PIXI.Container();
+        factoryContainer.x = TILE_SIZE / 2;
+        factoryContainer.y = 8 + OFFSET; // Centered on the header
+        factoryContainer.visible = false;
+
+        // 2. Add a background circle (The "Badge")
+        const factoryBg = new PIXI.Graphics();
+        factoryBg.circle(0, 0, 16); 
+        factoryBg.fill({ color: 0x1e293b, alpha: 1 }); // White background makes the emoji pop
+        factoryBg.setStrokeStyle({ width: 2, color: 0x334155 });
+        factoryBg.stroke();
+        factoryContainer.addChild(factoryBg);
+
+        // 3. Add the Emoji Text
+        const factoryEmoji = new PIXI.Text({
+          text: '🏭',
+          style: { fontSize: 18 }
+        });
+        factoryEmoji.anchor.set(0.5);
+        factoryContainer.addChild(factoryEmoji);
+
+        square.addChild(factoryContainer);
+
 
         const label = new PIXI.Text({
           text: data.label.toUpperCase(),
           style: { fontSize: 11, fill: 0xffffff, align: 'center', fontWeight: '900', letterSpacing: 1, wordWrap: true, wordWrapWidth: TILE_SIZE - 10 }
         });
-        label.anchor.set(0.5, 0); label.x = TILE_SIZE / 2; label.y = 24;
+        label.anchor.set(0.5, 0); label.x = TILE_SIZE / 2; label.y = 24 + OFFSET;
         square.addChild(label);
 
         const sub = new PIXI.Text({
           text: data.subLabel,
           style: { fontSize: 8, fill: 0x64748b, align: 'center', fontWeight: 'bold', wordWrap: true, wordWrapWidth: TILE_SIZE - 10 }
         });
-        sub.anchor.set(0.5, 0); sub.x = TILE_SIZE / 2; sub.y = 65;
+        sub.anchor.set(0.5, 0); sub.x = TILE_SIZE / 2; sub.y = 65 + OFFSET;
         square.addChild(sub);
+
+        const isEligibleSquare = isBusinessSquare(data.type);
+        square.on('pointerover', () => {
+          if (businessPlacementModeRef.current && isEligibleSquare) {
+            setHoveredBusinessSquare(i);
+          }
+        });
+
+        square.on('pointerout', () => {
+          if (hoveredBusinessSquareRef.current === i) {
+            setHoveredBusinessSquare(null);
+          }
+        });
+
+        square.on('pointertap', () => {
+          if (!businessPlacementModeRef.current || !isEligibleSquare || meRef.current?.class !== 'Businessman') return;
+          void handleSquarePurchase(i, data.type);
+        });
+
+        squareRefs.current.set(i, { 
+          container: square, 
+          bg, 
+          header, 
+          factory: factoryContainer,
+          stroke: stroke // Add this to your SquareGraphics type if needed, or manage via bg
+        });
       }
       setIsPixiReady(true);
     };
@@ -657,6 +807,41 @@ export const GameBoard: React.FC = () => {
   }, [players, isPixiReady, isMoving, me?.id]);
 
   useEffect(() => {
+    if (!isPixiReady) return;
+
+    squareRefs.current.forEach((parts, index) => {
+      const squareData = BOARD_LAYOUT[index];
+      const ownedBusiness = businesses.find(b => b.square_index === index);
+      const eligible = isBusinessSquare(squareData.type);
+      const placementActive = businessPlacementMode && eligible;
+      const hovered = hoveredBusinessSquare === index;
+
+      const GUTTER = 4;
+      const CARD_SIZE = TILE_SIZE - GUTTER;
+      const OFFSET = GUTTER / 2;
+      
+      parts.bg.clear();
+      parts.bg.roundRect(OFFSET, OFFSET, CARD_SIZE, CARD_SIZE, 8);
+      parts.bg.fill({ color: 0x1e293b, alpha: placementActive ? 0.95 : 0.9 });
+      const strokePart = (parts as any).stroke || parts.container.children[1]; 
+      strokePart.clear();
+      strokePart.roundRect(OFFSET, OFFSET, CARD_SIZE, CARD_SIZE, 8);
+      
+      strokePart.stroke({
+        width: (hovered && placementActive) ? 4 : 3,
+        color: (hovered && placementActive) ? 0x10b981 : placementActive ? 0xffffff : 0x334155,
+        alignment: 0 // CRITICAL: Keeps stroke inside the 100px box so tiles don't overlap
+      });
+
+      parts.header.clear();
+      parts.header.rect(OFFSET, OFFSET, CARD_SIZE, 12);
+      parts.header.fill(COLORS[squareData.type]);
+
+      parts.factory.visible = Boolean(ownedBusiness);
+    });
+  }, [businesses, businessPlacementMode, hoveredBusinessSquare, isPixiReady]);
+
+  useEffect(() => {
     const boardContainer = boardContainerRef.current;
     if (!boardContainer || !isPixiReady) return;
     players.forEach((player, idx) => {
@@ -690,7 +875,7 @@ export const GameBoard: React.FC = () => {
 
   return (
     <div className="relative w-full h-full flex items-center justify-center bg-slate-950 overflow-hidden">
-      {/* 1. Policy Deck (Left) */}
+        {/* 1. Policy Deck (Left) */}
       <div className="absolute left-4 top-1/2 -translate-y-1/2 w-64 space-y-6 z-20">
         <div className="bg-slate-900/90 backdrop-blur-xl border-2 border-slate-700 p-6 rounded-[2.5rem] shadow-2xl relative">
           <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-4 block text-center">Policy Pipeline</span>
@@ -794,7 +979,7 @@ export const GameBoard: React.FC = () => {
               </>
             )}
             <div className="pt-4 border-t border-slate-800">
-              <p className="text-[9px] text-center text-slate-600 font-black uppercase tracking-widest">Year {game?.year || 1} / 10</p>
+              <p className="text-[9px] text-center text-slate-600 font-black uppercase tracking-widest">Year {game?.year || 1} / 5</p>
             </div>
           </div>
         </div>
@@ -936,6 +1121,42 @@ export const GameBoard: React.FC = () => {
                   )}
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {me?.class === 'Banker' && me?.banker_go_pending && game?.current_player_id === me?.id && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center z-[70] p-4 animate-in fade-in duration-300">
+          <div className="bg-slate-900 border-4 border-emerald-500/50 w-full max-w-2xl rounded-[3rem] p-10 text-center space-y-8 shadow-[0_0_100px_rgba(16,185,129,0.2)] relative">
+            <div>
+              <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-2 block">GO Bonus</span>
+              <h2 className="text-3xl font-[1000] text-white tracking-tighter uppercase">Adjust an Indicator</h2>
+              <p className="text-slate-400 font-medium mt-3">Choose one economic indicator and move it up or down by 1.</p>
+            </div>
+
+            <div className="grid gap-3 text-left">
+              {([
+                ['gdp', 'GDP Growth'],
+                ['inflation', 'Inflation'],
+                ['unemployment', 'Unemployment'],
+              ] as Array<[EconomicIndicator, string]>).map(([indicator, label]) => (
+                <div
+                  key={indicator}
+                  onClick={() => setSelectedBankerIndicator(indicator)}
+                  className={`flex items-center justify-between gap-4 rounded-2xl border-2 px-5 py-4 transition-all ${selectedBankerIndicator === indicator ? 'border-emerald-400 bg-emerald-500/10' : 'border-slate-700 bg-slate-800/70 hover:border-slate-500'}`}
+                >
+                  <div>
+                    <p className="text-white font-black uppercase tracking-widest text-sm">{label}</p>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase">Move this by one step</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => void handleBankerAction('up')} className="flex-1 py-4 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-widest shadow-[0_6px_0_rgb(4,120,87)]">Increase</button>
+              <button onClick={() => void handleBankerAction('down')} className="flex-1 py-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-black uppercase tracking-widest shadow-[0_6px_0_rgb(153,27,27)]">Decrease</button>
             </div>
           </div>
         </div>
@@ -1297,9 +1518,20 @@ export const GameBoard: React.FC = () => {
       {/* 7. Footer Controls */}
       <div className="absolute bottom-6 flex items-center justify-center gap-6 w-full z-10">
         <div className="flex items-center gap-6 bg-slate-900/60 backdrop-blur-2xl p-6 rounded-[2.5rem] border-2 border-slate-700/50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
-          <button onClick={handleRoll} disabled={isRolling || game?.current_player_id !== me?.id || game?.has_rolled || me?.is_waiting_at_go || isMoving} className={`px-16 py-6 rounded-[2rem] font-[1000] text-3xl transition-all duration-300 ${(game?.current_player_id === me?.id && !game?.has_rolled && !me?.is_waiting_at_go) ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_10px_0_rgb(5,150,105)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>{isRolling ? 'ROLLING...' : me?.is_waiting_at_go ? 'AT GO' : 'ROLL DICE'}</button>
-          <button onClick={endTurn} disabled={isRolling || game?.current_player_id !== me?.id || (!game?.has_rolled && !me?.is_waiting_at_go) || isMoving} className={`px-10 py-5 rounded-[1.5rem] font-black text-xl transition-all duration-300 ${(game?.current_player_id === me?.id && (game?.has_rolled || me?.is_waiting_at_go)) ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_6px_0_rgb(30,64,175)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>END TURN</button>
+          <button onClick={handleRoll} disabled={isRolling || game?.current_player_id !== me?.id || game?.has_rolled || me?.is_waiting_at_go || isMoving || businessPlacementMode || me?.banker_go_pending} className={`px-16 py-6 rounded-[2rem] font-[1000] text-3xl transition-all duration-300 ${(game?.current_player_id === me?.id && !game?.has_rolled && !me?.is_waiting_at_go && !businessPlacementMode && !me?.banker_go_pending) ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_10px_0_rgb(5,150,105)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>{isRolling ? 'ROLLING...' : me?.is_waiting_at_go ? 'AT GO' : 'ROLL DICE'}</button>
+          {me?.class === 'Worker' && (
+            <button onClick={handleAbilityClick} disabled={isRolling || game?.current_player_id !== me?.id || isMoving || businessPlacementMode || me?.has_acted_this_year} className={`px-10 py-5 rounded-[1.5rem] font-black text-xl transition-all duration-300 ${(game?.current_player_id === me?.id && !me?.has_acted_this_year && !businessPlacementMode) ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_6px_0_rgb(30,64,175)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>STRIKE</button>
+          )}
+          {me?.class === 'Businessman' && (
+            <button onClick={handleAbilityClick} disabled={isRolling || game?.current_player_id !== me?.id || isMoving || me?.has_acted_this_year} className={`px-10 py-5 rounded-[1.5rem] font-black text-xl transition-all duration-300 ${(game?.current_player_id === me?.id && !me?.has_acted_this_year) ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-[0_6px_0_rgb(180,83,9)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>{businessPlacementMode ? 'SELECTING...' : 'BUY BUSINESS'}</button>
+          )}
+          <button onClick={endTurn} disabled={isRolling || game?.current_player_id !== me?.id || (!game?.has_rolled && !me?.is_waiting_at_go) || isMoving || businessPlacementMode || me?.banker_go_pending} className={`px-10 py-5 rounded-[1.5rem] font-black text-xl transition-all duration-300 ${(game?.current_player_id === me?.id && (game?.has_rolled || me?.is_waiting_at_go) && !businessPlacementMode && !me?.banker_go_pending) ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_6px_0_rgb(30,64,175)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>END TURN</button>
         </div>
+        {businessPlacementMode && businessPlacementMessage && (
+          <div className="absolute -top-16 bg-white text-slate-950 px-5 py-3 rounded-full font-black uppercase tracking-widest text-xs shadow-2xl border-2 border-slate-950">
+            {businessPlacementMessage}
+          </div>
+        )}
       </div>
 
       {/* 8. Win Modal */}

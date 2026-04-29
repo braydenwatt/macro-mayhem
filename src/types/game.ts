@@ -32,6 +32,8 @@ export interface Player {
   vote_confirmed: boolean;
   financial_stress: boolean;
   bonus_voting_weight: number;
+  banker_go_pending: boolean;
+  pending_square_index: number | null;
 }
 
 export type EconomyStatus = 'Growth' | 'Recession' | 'Depression';
@@ -65,7 +67,18 @@ export interface GameState {
   min_salary: number;
   policy_vote_start?: string | null;
   square_action_resolved: boolean;
+  worker_strike_active: boolean;
 }
+
+export interface BusinessOwnership {
+  id: string;
+  game_id: string;
+  player_id: string;
+  square_index: number;
+  created_at: string;
+}
+
+export type EconomicIndicator = 'gdp' | 'inflation' | 'unemployment';
 
 export interface ActionLog {
   id: string;

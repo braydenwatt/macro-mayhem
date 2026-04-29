@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GameState, Player, SquareType } from '../types/game';
+import { GameState, Player, SquareType, EconomicIndicator } from '../types/game';
 import { gameService } from '../services/gameService';
 
 interface GameStore {
@@ -14,6 +14,8 @@ interface GameStore {
   
   rollDice: () => Promise<void>;
   useAbility: (param?: any) => Promise<void>;
+  purchaseBusiness: (squareIndex: number, squareType: SquareType) => Promise<void>;
+  resolveBankerGoChoice: (indicator: EconomicIndicator, direction: 'up' | 'down') => Promise<void>;
   startGame: () => Promise<void>;
   clearActionMessage: () => Promise<void>;
   resolveSquare: (type: SquareType) => Promise<void>;
@@ -66,6 +68,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { game, me } = get();
     if (!game || !me) return;
     await gameService.useAbility(game.id, me, game.gdp, game.unemployment, game.inflation, param);
+  },
+
+  purchaseBusiness: async (squareIndex: number, squareType: SquareType) => {
+    const { game, me } = get();
+    if (!game || !me) return;
+    await gameService.purchaseBusiness(game.id, me.id, squareIndex, squareType);
+  },
+
+  resolveBankerGoChoice: async (indicator: EconomicIndicator, direction: 'up' | 'down') => {
+    const { game, me } = get();
+    if (!game || !me) return;
+    await gameService.resolveBankerGoChoice(game.id, me.id, indicator, direction);
   },
 
   startGame: async () => {

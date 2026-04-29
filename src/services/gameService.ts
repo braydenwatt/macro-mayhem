@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { PlayerClass, GameState, Player, SquareType } from '../types/game';
+import { PlayerClass, GameState, Player, SquareType, BusinessOwnership, EconomicIndicator } from '../types/game';
 import { calculateSalary, calculateSalaryPayout } from '../engine/economy';
 import { ExpenseCard } from '../types/game';
 
@@ -17,6 +17,10 @@ export const SPECIAL_EXPENSES: ExpenseCard[] = [
   { id: 'stimulus', name: 'Local Stimulus', cost_multiplier: 3, description: 'Inject capital into local projects. GDP +1.', unpaid_effect: 'NONE', target_class: 'all' },
   { id: 'job_training', name: 'Job Training', cost_multiplier: 3, description: 'Funding for workers. Unemployment -1.', unpaid_effect: 'NONE', target_class: 'all' },
 ];
+
+const clampIndicator = (value: number) => Math.max(1, Math.min(10, value));
+
+const isBusinessSquare = (type: SquareType) => type === 'VACATION' || type === 'PAY_EXPENSES';
 
 export const gameService = {
   async createGame(): Promise<GameState | null> {
@@ -127,6 +131,13 @@ export const gameService = {
     const { data: game } = await supabase.from('games').select('*').eq('id', player.game_id).single();
     if (!game) return;
 
+    if (game.worker_strike_active && (player.class === 'Businessman' || player.class === 'Politician')) {
+      const strikeMessage = `${player.name} could not collect salary while the worker strike is active.`;
+      await this.logAction(game.id, playerId, 'STRIKE', strikeMessage);
+      await supabase.from('games').update({ last_action_message: strikeMessage }).eq('id', game.id);
+      return;
+    }
+
     const baseSalary = calculateSalary(player.class, game.gdp, game.inflation, game.unemployment, player.popularity, game.tax_rate, game.min_salary);
     const finalPayout = calculateSalaryPayout(baseSalary, isLanding);
 
@@ -144,6 +155,13 @@ export const gameService = {
       
       const landingMsg = isLanding ? " (LANDED!)" : "";
       await this.logAction(game.id, playerId, 'SALARY', `${player.name} received a salary of $${finalPayout}${landingMsg}.`);
+    }
+
+    if (player.class === 'Banker' && player.position === 0) {
+      await supabase.from('players').update({ banker_go_pending: true }).eq('id', playerId);
+      const bankerMessage = `${player.name} passed GO and may shift GDP, inflation, or unemployment.`;
+      await this.logAction(game.id, playerId, 'BANKER_GO', bankerMessage);
+      await supabase.from('games').update({ last_action_message: bankerMessage }).eq('id', game.id);
     }
   },
 
@@ -192,6 +210,9 @@ export const gameService = {
     const { data: game } = await supabase.from('games').select('*').eq('id', player.game_id).single();
     if (!game) return;
 
+    const { data: ownership } = await supabase.from('businesses').select('*').eq('game_id', game.id).eq('square_index', player.pending_square_index ?? -1).maybeSingle();
+    const ownerId = ownership?.player_id || null;
+
     const currentSalary = calculateSalary(player.class, game.gdp, game.inflation, game.unemployment, player.popularity, game.tax_rate, game.min_salary);
     
     let message = "";
@@ -200,7 +221,14 @@ export const gameService = {
       await supabase.from('players').update({ 
         balance: player.balance - amount 
       }).eq('id', playerId);
-      message = `${player.name} went on VACATION! Rolled ${roll} and paid $${amount}.`;
+      if (ownerId) {
+        const { data: owner } = await supabase.from('players').select('balance,name').eq('id', ownerId).single();
+        if (owner) {
+          await supabase.from('players').update({ balance: owner.balance + amount }).eq('id', ownerId);
+          message = `${player.name} went on VACATION! Rolled ${roll} and paid $${amount} to ${owner.name}.`;
+        }
+      }
+      if (!message) message = `${player.name} went on VACATION! Rolled ${roll} and paid $${amount}.`;
     } else {      // PAY_EXPENSES logic is handled via resolveExpenseChoice now
       return;
     }
@@ -214,6 +242,8 @@ export const gameService = {
     if (!player) return;
     const { data: game } = await supabase.from('games').select('*').eq('id', player.game_id).single();
     if (!game) return;
+    const { data: ownership } = await supabase.from('businesses').select('*').eq('game_id', game.id).eq('square_index', player.pending_square_index ?? -1).maybeSingle();
+    const ownerId = ownership?.player_id || null;
 
     const allCards = [...CHEAP_EXPENSES, ...SPECIAL_EXPENSES];
     const card = allCards.find(c => c.id === cardId);
@@ -223,8 +253,14 @@ export const gameService = {
     const baseCost = Math.floor(currentSalary / 5);
     const totalCost = card.cost_multiplier * baseCost;
 
-    const paidAmount = Math.min(player.balance, totalCost);
+    const paidAmount = totalCost;
     await supabase.from('players').update({ balance: player.balance - paidAmount }).eq('id', playerId);
+    if (ownerId) {
+      const { data: owner } = await supabase.from('players').select('balance,name').eq('id', ownerId).single();
+      if (owner) {
+        await supabase.from('players').update({ balance: owner.balance + paidAmount }).eq('id', ownerId);
+      }
+    }
 
     let effectMsg = "";
     // Apply card effects
@@ -250,14 +286,16 @@ export const gameService = {
       effectMsg = " (Unemployment ↓)";
     }
 
-    const message = `${player.name} chose "${card.name}" and paid $${paidAmount}.${effectMsg}`;
+    const ownerMessage = ownerId ? ` The payment went to the business owner instead of the bank.` : '';
+    const message = `${player.name} chose "${card.name}" and paid $${paidAmount}.${effectMsg}${ownerMessage}`;
     await this.logAction(game.id, playerId, 'EXPENSE', message);
     await supabase.from('games').update({ last_action_message: message }).eq('id', game.id);
     await this.clearEventRollPending(playerId);
+    await supabase.from('players').update({ pending_square_index: null }).eq('id', playerId);
   },
 
   async clearEventRollPending(playerId: string): Promise<void> {
-    await supabase.from('players').update({ event_roll_pending: null }).eq('id', playerId);
+    await supabase.from('players').update({ event_roll_pending: null, pending_square_index: null }).eq('id', playerId);
   },
 
   async resolveSquare(
@@ -286,19 +324,11 @@ export const gameService = {
         return;
 
       case 'VACATION':
-        await supabase.from('players').update({ event_roll_pending: 'VACATION' }).eq('id', playerId);
+        await supabase.from('players').update({ event_roll_pending: 'VACATION', pending_square_index: player.position }).eq('id', playerId);
         return;
 
       case 'PAY_EXPENSES':
-        const currentSalary = calculateSalary(player.class, gdp, inflation, unemployment, popularity, taxRate, minSalary);
-        const baseCost = Math.floor(currentSalary / 5);
-        if (player.balance < baseCost) {
-          message = `${player.name} could not afford any expenses!`;
-          await this.logAction(gameId, playerId, 'EXPENSE', message);
-          await supabase.from('games').update({ last_action_message: message }).eq('id', gameId);
-          return;
-        }
-        await supabase.from('players').update({ event_roll_pending: 'PAY_EXPENSES' }).eq('id', playerId);
+        await supabase.from('players').update({ event_roll_pending: 'PAY_EXPENSES', pending_square_index: player.position }).eq('id', playerId);
         return;
 
       case 'CHANCE':
@@ -600,6 +630,9 @@ export const gameService = {
         tax_rate: Math.max(0, game.tax_rate + (policy.tax_mod || 0)),
         min_salary: newMinSalary
       };
+      if (policy.min_salary_set && policy.min_salary_set > 0) {
+        (gdpUpdate as any).worker_strike_active = false;
+      }
       await supabase.from('games').update(gdpUpdate).eq('id', gameId);
 
       const { data: players } = await supabase.from('players').select('*').eq('game_id', gameId);
@@ -621,6 +654,9 @@ export const gameService = {
     if (passed && policy.min_salary_set) {
       resultMsg += ` Minimum wage increased by $${policy.min_salary_set}, boosting Worker salaries!`;
     }
+    if (passed && policy.min_salary_set && policy.min_salary_set > 0 && game.worker_strike_active) {
+      resultMsg += ` The worker strike has ended.`;
+    }
     await this.logAction(gameId, '', 'VOTE_RESULT', resultMsg);
     await supabase.from('games').update({ last_action_message: resultMsg }).eq('id', gameId);
   },
@@ -630,6 +666,8 @@ export const gameService = {
 
     try {
       let playerUpdate = {}, gameUpdate = {};
+      let actionMessage = '';
+      let actionType = 'ABILITY';
       
       switch (player.class) {
         case 'Worker':
@@ -638,26 +676,16 @@ export const gameService = {
           gameUpdate = { 
             unemployment: Math.min(10, unemployment + 1),
             gdp: Math.max(1, gdp - 1),
-            last_action_message: `${player.name} (Worker) called a STRIKE! Unemployment ↑, GDP ↓.`
+            worker_strike_active: true,
+            last_action_message: `${player.name} (Worker) called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`
           };
+          actionMessage = `${player.name} called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`;
+          actionType = 'STRIKE';
           break;
         case 'Businessman':
-          if (player.balance < 30) return;
-          playerUpdate = { balance: player.balance - 30, has_acted_this_year: true };
-          gameUpdate = { 
-            gdp: Math.min(10, gdp + 1),
-            last_action_message: `${player.name} (Businessman) invested in growth! GDP ↑.`
-          };
-          break;
+          return;
         case 'Banker':
-          if (player.balance < 40) return;
-          const infMod = param === 'down' ? -1 : 1;
-          playerUpdate = { balance: player.balance - 40, has_acted_this_year: true };
-          gameUpdate = { 
-            inflation: Math.max(1, Math.min(10, inflation + infMod)),
-            last_action_message: `${player.name} (Banker) ADJUSTED rates! Inflation ${infMod > 0 ? '↑' : '↓'}.`
-          };
-          break;
+          return;
         case 'Politician':
           if (player.popularity < 3) return;
           playerUpdate = { popularity: player.popularity - 3, has_acted_this_year: true };
@@ -665,14 +693,61 @@ export const gameService = {
             unemployment: Math.max(1, unemployment - 1),
             last_action_message: `${player.name} (Politician) created jobs! Unemployment ↓.`
           };
+          actionMessage = `${player.name} created jobs! Unemployment ↓.`;
+          actionType = 'POLITICIAN';
           break;
       }
       
       await supabase.from('players').update(playerUpdate).eq('id', player.id);
       await supabase.from('games').update(gameUpdate).eq('id', gameId);
+      if (actionMessage) {
+        await this.logAction(gameId, player.id, actionType, actionMessage);
+      }
     } catch (e) {
       console.error('Error in useAbility:', e);
     }
+
+  },
+
+  async resolveBankerGoChoice(gameId: string, playerId: string, indicator: EconomicIndicator, direction: 'up' | 'down'): Promise<void> {
+    const { data: player } = await supabase.from('players').select('*').eq('id', playerId).single();
+    const { data: game } = await supabase.from('games').select('*').eq('id', gameId).single();
+    if (!player || !game || player.class !== 'Banker' || !player.banker_go_pending) return;
+
+    const delta = direction === 'up' ? 1 : -1;
+    const updates: Partial<GameState> = {};
+
+    if (indicator === 'gdp') updates.gdp = clampIndicator(game.gdp + delta);
+    if (indicator === 'inflation') updates.inflation = clampIndicator(game.inflation + delta);
+    if (indicator === 'unemployment') updates.unemployment = clampIndicator(game.unemployment + delta);
+
+    const message = `${player.name} used their GO power to move ${indicator.toUpperCase()} ${direction === 'up' ? 'up' : 'down'} by 1.`;
+    await supabase.from('games').update({ ...updates, last_action_message: message }).eq('id', gameId);
+    await supabase.from('players').update({ banker_go_pending: false }).eq('id', playerId);
+    await this.logAction(gameId, playerId, 'BANKER_GO', message);
+  },
+
+  async purchaseBusiness(gameId: string, playerId: string, squareIndex: number, squareType: SquareType): Promise<void> {
+    const { data: player } = await supabase.from('players').select('*').eq('id', playerId).single();
+    const { data: game } = await supabase.from('games').select('*').eq('id', gameId).single();
+    if (!player || !game || player.class !== 'Businessman' || player.has_acted_this_year) return;
+    if (player.balance < 100 || !isBusinessSquare(squareType)) return;
+
+    const { data: existing } = await supabase.from('businesses').select('*').eq('game_id', gameId).eq('square_index', squareIndex).maybeSingle();
+    if (existing) return;
+
+    await supabase.from('businesses').insert({
+      game_id: gameId,
+      player_id: playerId,
+      square_index: squareIndex
+    });
+
+    const nextBalance = player.balance - 100;
+    const message = `${player.name} purchased a business on square ${squareIndex} for $100.`;
+
+    await supabase.from('players').update({ balance: nextBalance, has_acted_this_year: true }).eq('id', playerId);
+    await supabase.from('games').update({ last_action_message: message }).eq('id', gameId);
+    await this.logAction(gameId, playerId, 'BUSINESS', message);
   },
 
   async clearActionMessage(gameId: string): Promise<void> {

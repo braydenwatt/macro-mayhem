@@ -12,17 +12,17 @@ import { supabase } from './services/supabase';
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
     tag: "The Laborer",
-    desc: "Fixed Weight: 2. Ability: Coerce politician with popularity points. Passive: rolls for unemployment at salary squares. High unemployment risks losing income.",
+    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Politician salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income.",
     icon: "🔨"
   },
   Businessman: {
     tag: "The Investor",
-    desc: "Fixed Weight: 1. Ability: Invest (Boosts GDP directly).",
+    desc: "Fixed Weight: 1. Ability: Purchase a business and collect rent from vacation and expense squares once per year.",
     icon: "💼"
   },
   Banker: {
     tag: "The Regulator",
-    desc: "Fixed Weight: 1. Ability: Adjust Rates (Modifies Inflation).",
+    desc: "Fixed Weight: 1. When passing GO, choose GDP, inflation, or unemployment to move by 1.",
     icon: "🏦"
   },
   Politician: {
@@ -50,6 +50,43 @@ function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Pl
     game.min_salary
   ) : null;
 
+  const salarySourceDetails = game ? (() => {
+    switch (player.class) {
+      case 'Worker': {
+        const unemploymentBonus = (5 - game.unemployment) * 10;
+        return [
+          `Base wage: $30`,
+          `Minimum wage floor: +$${game.min_salary}`,
+          `Unemployment bonus: ${unemploymentBonus >= 0 ? '+' : '-'}$${Math.abs(unemploymentBonus)}`,
+          `Tax rate: -$${salaryInfo?.taxAmount ?? 0}`,
+          `Final payout: $${salaryInfo?.finalSalary ?? 0}`,
+        ];
+      }
+      case 'Businessman':
+        return [
+          `Base wage: $50`,
+          `GDP bonus: +$${game.gdp * 10}`,
+          `Tax rate: -$${salaryInfo?.taxAmount ?? 0}`,
+          `Final payout: $${salaryInfo?.finalSalary ?? 0}`,
+        ];
+      case 'Banker': {
+        return [
+          `Base wage: $50`,
+          game.inflation === 3 ? 'Inflation bonus: +$50 at perfect stability' : game.inflation > 7 ? 'Inflation penalty: -$20 from hyperinflation' : 'Inflation bonus: none',
+          `Tax rate: -$${salaryInfo?.taxAmount ?? 0}`,
+          `Final payout: $${salaryInfo?.finalSalary ?? 0}`,
+        ];
+      }
+      case 'Politician':
+        return [
+          `Base wage: $30`,
+          `Popularity bonus: +$${player.popularity * 5}`,
+          `Tax rate: -$${salaryInfo?.taxAmount ?? 0}`,
+          `Final payout: $${salaryInfo?.finalSalary ?? 0}`,
+        ];
+    }
+  })() : [];
+
   return (
     <div className={`flex ${containerClasses[position]} pointer-events-auto transition-all`}>
       <div className={`flex items-center gap-4 ${position === 'left' || position === 'right' ? 'flex-col text-center' : ''}`}>
@@ -76,19 +113,32 @@ function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Pl
         </div>
 
         {salaryInfo && (
-          <div className="flex flex-col items-center">
-            <span className="text-[8px] font-black text-slate-500 uppercase">Expected Income</span>
+          <div className="flex flex-col items-center group relative">
+            <div className="flex items-center gap-2">
+              <span className="text-[8px] font-black text-slate-500 uppercase">Expected Income</span>
+              <div className="relative">
+                <Info className="w-3 h-3 text-slate-500 hover:text-white transition-colors" />
+                <div className="pointer-events-none absolute left-1/2 bottom-full z-50 hidden w-64 -translate-x-1/2 pb-3 group-hover:block">
+                  <div className="rounded-2xl border border-slate-700 bg-slate-950/95 p-4 text-left shadow-2xl">
+                    <p className="mb-2 text-[9px] font-black uppercase tracking-[0.3em] text-slate-500">Income Sources</p>
+                    <div className="space-y-1">
+                      {salarySourceDetails.map((line) => (
+                        <p key={line} className="text-[10px] font-bold leading-snug text-slate-300">{line}</p>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
             <span className="text-xl font-black flex items-center gap-1">
-              <span className="text-amber-500">${salaryInfo.baseSalary}</span>
-              <span className="text-slate-500 text-sm mx-0.5">-</span>
-              <span className="text-blue-400">${salaryInfo.taxAmount}</span>
+              <span className="text-amber-500">${salaryInfo.finalSalary}</span>
             </span>
           </div>
         )}
         
-        {player.class === 'Politician' && (
+        {(player.class === 'Politician' || player.class === 'Worker') && (
           <div className="flex flex-col items-center">
-            <span className="text-[8px] font-black text-slate-500 uppercase">Public Approval</span>
+            <span className="text-[8px] font-black text-slate-500 uppercase">Popularity Points</span>
             <span className="text-xl font-black text-violet-400 flex items-center gap-1">
               {player.popularity}/10
             </span>
@@ -161,7 +211,7 @@ function PlayerLeaderboard({ game, players, me }: { game: GameState | null, play
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">{p.class}</span>
                         <div className="flex items-center gap-2">
-                          {p.class === 'Politician' && (
+                          {(p.class === 'Politician' || p.class === 'Worker') && (
                             <span className="text-[8px] font-black text-violet-400 uppercase">POP: {p.popularity}</span>
                           )}
                           <div className={`w-1.5 h-1.5 rounded-full ${p.has_acted_this_year ? 'bg-slate-700' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} title={p.has_acted_this_year ? "Ability Used" : "Ability Ready"} />
