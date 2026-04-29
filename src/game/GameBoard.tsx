@@ -1218,70 +1218,73 @@ export const GameBoard: React.FC = () => {
                   </div>
 
                   {/* Send Trade UI */}
-                  <div className="space-y-3">
-                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block ml-2">Initiate Trade</span>
-                    <div className="bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-700 space-y-6">
-                       {selectedTargetId ? (
-                         <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
-                            {/* Selected Target Header */}
-                            <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-2xl border border-blue-500/30">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-3 h-3 rounded-full ${players.find(p => p.id === selectedTargetId)?.class === 'Worker' ? 'bg-blue-500' : players.find(p => p.id === selectedTargetId)?.class === 'Businessman' ? 'bg-amber-500' : players.find(p => p.id === selectedTargetId)?.class === 'Banker' ? 'bg-emerald-500' : 'bg-violet-500'}`} />
-                                <span className="text-xs font-black text-white uppercase">{players.find(p => p.id === selectedTargetId)?.name}</span>
+                  {(
+                    <div className="space-y-3">
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block ml-2">Negotiate</span>
+                      <div className="bg-slate-800/50 p-6 rounded-[2.5rem] border border-slate-700 space-y-6">
+                         {selectedTargetId ? (
+                           <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
+                              {/* Selected Target Header */}
+                              <div className="flex justify-between items-center bg-slate-900/50 p-4 rounded-2xl border border-blue-500/30">
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-3 h-3 rounded-full ${players.find(p => p.id === selectedTargetId)?.class === 'Worker' ? 'bg-blue-500' : players.find(p => p.id === selectedTargetId)?.class === 'Businessman' ? 'bg-amber-500' : players.find(p => p.id === selectedTargetId)?.class === 'Banker' ? 'bg-emerald-500' : 'bg-violet-500'}`} />
+                                  <span className="text-xs font-black text-white uppercase">{players.find(p => p.id === selectedTargetId)?.name}</span>
+                                </div>
+                                <button onClick={() => setSelectedTargetId(null)} className="text-slate-500 hover:text-white transition-colors"><span className="text-xs font-black uppercase tracking-widest">Cancel</span></button>
                               </div>
-                              <button onClick={() => setSelectedTargetId(null)} className="text-slate-500 hover:text-white transition-colors"><span className="text-xs font-black uppercase tracking-widest">Cancel</span></button>
-                            </div>
 
-                            {/* Trading Sliders */}
-                            <div className="space-y-6">
-                               <div className="space-y-3">
-                                 <div className="flex justify-between text-[10px] font-black uppercase text-slate-500"><span>Offer Money</span><span className="text-emerald-500">${tradeMoney}</span></div>
-                                 <input type="range" min="0" max={me?.balance || 0} step="5" value={tradeMoney} onChange={(e) => setTradeMoney(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
-                               </div>
-                               
-                               {(me?.class !== 'Worker' || players.find(p => p.id === selectedTargetId)?.class === 'Politician') && (
-                                 <div className="space-y-3">
-                                   <div className="flex justify-between text-[10px] font-black uppercase text-slate-500"><span>Offer Popularity</span><span className="text-violet-500">{tradePop} Points</span></div>
-                                   <input type="range" min="0" max={me?.class === 'Worker' ? 10 : (me?.popularity || 0)} step="1" value={tradePop} onChange={(e) => setTradePop(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500" />
-                                   {me?.class === 'Worker' && <p className="text-[8px] text-slate-600 font-bold uppercase italic">* Workers grant virtual points to the target</p>}
-                                 </div>
-                               )}
+                              {/* Trading Sliders */}
+                              <div className="space-y-6">
+                                {me?.class !== 'Worker' && (
+                                  <div className="space-y-3">
+                                    <div className="flex justify-between text-[10px] font-black uppercase text-slate-500"><span>Offer Money</span><span className="text-emerald-500">${tradeMoney}</span></div>
+                                    <input type="range" min="0" max={me?.balance || 0} step="5" value={tradeMoney} onChange={(e) => setTradeMoney(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+                                  </div>
+                                )}
 
-                               <div className="space-y-3">
-                                 <div className="flex justify-between text-[10px] font-black uppercase text-slate-500"><span>Coerce Vote</span><span className={tradeVote === 'YES' ? 'text-emerald-500' : 'text-rose-500'}>{tradeVote}</span></div>
-                                 <div className="flex gap-2">
-                                   <button onClick={() => setTradeVote('YES')} className={`flex-1 py-2 rounded-lg font-black text-xs transition-all ${tradeVote === 'YES' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-500'}`}>FOR YES</button>
-                                   <button onClick={() => setTradeVote('NO')} className={`flex-1 py-2 rounded-lg font-black text-xs transition-all ${tradeVote === 'NO' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-slate-500'}`}>FOR NO</button>
-                                 </div>
-                               </div>
+                                {me?.class === 'Worker' && (
+                                  <div className="space-y-3">
+                                    <div className="flex justify-between text-[10px] font-black uppercase text-slate-500"><span>Offer Popularity</span><span className="text-violet-500">{tradePop} Points</span></div>
+                                    <input type="range" min="0" max={me?.popularity || 0} step="1" value={tradePop} onChange={(e) => setTradePop(parseInt(e.target.value))} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-violet-500" />
+                                    <p className="text-[8px] text-slate-600 font-bold uppercase italic">* Workers grant virtual points to the target</p>
+                                  </div>
+                                )}
 
-                               <button 
-                                 onClick={handleSendTrade}
-                                 className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-sm shadow-[0_4px_0_rgb(30,64,175)] active:translate-y-1 transition-all mt-4"
-                               >
-                                 SEND TRADE OFFER
-                               </button>
-                            </div>
-                         </div>
-                       ) : (
-                         <div className="grid grid-cols-2 gap-4">
-                           {players.filter(p => p.id !== me?.id).map(p => (
-                             <button 
-                               key={p.id} 
-                               onClick={() => setSelectedTargetId(p.id)}
-                               className="p-4 bg-slate-900/50 border border-slate-700 rounded-2xl text-left hover:border-blue-500 transition-all group"
-                             >
-                               <div className="flex items-center gap-3">
-                                 <div className={`w-3 h-3 rounded-full ${p.class === 'Worker' ? 'bg-blue-500' : p.class === 'Businessman' ? 'bg-amber-500' : p.class === 'Banker' ? 'bg-emerald-500' : 'bg-violet-500'}`} />
-                                 <span className="text-xs font-black text-white uppercase group-hover:text-blue-400">{p.name}</span>
-                               </div>
-                             </button>
-                           ))}
-                         </div>
-                       )}
+                                <div className="space-y-3">
+                                  <div className="flex justify-between text-[10px] font-black uppercase text-slate-500"><span>Coerce Vote</span><span className={tradeVote === 'YES' ? 'text-emerald-500' : 'text-rose-500'}>{tradeVote}</span></div>
+                                  <div className="flex gap-2">
+                                    <button onClick={() => setTradeVote('YES')} className={`flex-1 py-2 rounded-lg font-black text-xs transition-all ${tradeVote === 'YES' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-slate-500'}`}>FOR YES</button>
+                                    <button onClick={() => setTradeVote('NO')} className={`flex-1 py-2 rounded-lg font-black text-xs transition-all ${tradeVote === 'NO' ? 'bg-rose-600 text-white' : 'bg-slate-900 text-slate-500'}`}>FOR NO</button>
+                                  </div>
+                                </div>
+
+                                <button 
+                                  onClick={handleSendTrade}
+                                  className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-sm shadow-[0_4px_0_rgb(30,64,175)] active:translate-y-1 transition-all mt-4"
+                                >
+                                  SEND NEGOTIATION OFFER
+                                </button>
+                             </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-4">
+                            {players.filter(p => p.id !== me?.id).map(p => (
+                              <button 
+                                key={p.id} 
+                                onClick={() => setSelectedTargetId(p.id)}
+                                className="p-4 bg-slate-900/50 border border-slate-700 rounded-2xl text-left hover:border-blue-500 transition-all group"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={`w-3 h-3 rounded-full ${p.class === 'Worker' ? 'bg-blue-500' : p.class === 'Businessman' ? 'bg-amber-500' : p.class === 'Banker' ? 'bg-emerald-500' : 'bg-violet-500'}`} />
+                                  <span className="text-xs font-black text-white uppercase group-hover:text-blue-400">{p.name}</span>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  )}                </div>
 
                 {game.current_player_id === me?.id && players.every(p => p.vote_confirmed) && (
                   <button onClick={handleResolveVote} className="mt-8 w-full py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-[1000] text-xl shadow-[0_8px_0_rgb(30,64,175)]">FINALIZE DECISION</button>

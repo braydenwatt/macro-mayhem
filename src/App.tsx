@@ -7,26 +7,27 @@ import { PlayerClass, Player, GameState } from './types/game';
 import { getSalaryDetails } from './engine/economy';
 import { Users, Plus, Play, UserCircle, Copy, CheckCircle2, Coins, Milestone, Info, LogOut } from 'lucide-react';
 import './utils/testHelpers'; // Initialize test mode helpers
+import { supabase } from './services/supabase';
 
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
     tag: "The Laborer",
-    desc: "Fixed Weight: 2. Passive: rolls for unemployment at salary squares. High unemployment risks losing income.",
+    desc: "Fixed Weight: 2. Ability: Coerce politician with popularity points. Passive: rolls for unemployment at salary squares. High unemployment risks losing income.",
     icon: "🔨"
   },
   Businessman: {
     tag: "The Investor",
-    desc: "Fixed Weight: 1. Wins when GDP is high (≥4) and they have $300. Ability: Invest (Boosts GDP directly).",
+    desc: "Fixed Weight: 1. Ability: Invest (Boosts GDP directly).",
     icon: "💼"
   },
   Banker: {
     tag: "The Regulator",
-    desc: "Fixed Weight: 1. Wins when inflation is stable (3). Ability: Adjust Rates (Modifies Inflation).",
+    desc: "Fixed Weight: 1. Ability: Adjust Rates (Modifies Inflation).",
     icon: "🏦"
   },
   Politician: {
     tag: "The Leader",
-    desc: "Fixed Weight: 2. Ability: Executive Order (Forces policy outcome). Wins with high Popularity (≥6) and stable GDP (≥3).",
+    desc: "Fixed Weight: 1. Ability: Executive Order (Forces policy outcome).",
     icon: "⚖️"
   }
 };
@@ -286,6 +287,16 @@ function App() {
   const [copied, setCopied] = useState(false);
 
   const { game, me, players = [], setMe, startGame } = useGameStore();
+
+  useEffect(() => {
+    const initAuth = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        await supabase.auth.signInAnonymously();
+      }
+    };
+    initAuth();
+  }, []);
 
   // Persist session
   useEffect(() => {
