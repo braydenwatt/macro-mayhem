@@ -82,10 +82,9 @@ export const GameBoard: React.FC = () => {
 
   const { 
     game, players, me, 
-    rollDice, endTurn, useAbility, 
-    resolveSquare, submitVote, resolvePolicyVote, 
-    getWinners, clearActionMessage,
-    createTrade, cancelTrade, respondToTrade, useExecutiveOrder,
+    rollDice, endTurn, useAbility,
+    resolveSquare, submitVote, resolvePolicyVote, confirmVoteReady,
+    getWinners, clearActionMessage,    createTrade, cancelTrade, respondToTrade, useExecutiveOrder,
     resolveEventRoll, resolveExpenseChoice, clearUnemploymentPending, clearEventRollPending
   } = useGameStore();
 
@@ -96,6 +95,8 @@ export const GameBoard: React.FC = () => {
   const [activePolicy, setActivePolicy] = useState<any>(null);
   const [winners, setWinners] = useState<Player[]>([]);
   const [bankerChoice, setBankerChoice] = useState<boolean>(false);
+  const [bids, setBids] = useState<any[]>([]);
+  const [timeLeft, setTimeLeft] = useState<number>(30);
   
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [tradeMoney, setTradeMoney] = useState(0);
@@ -134,9 +135,6 @@ export const GameBoard: React.FC = () => {
       if (me.event_roll_pending === 'PAY_EXPENSES') {
         const cheap = CHEAP_EXPENSES[Math.floor(Math.random() * CHEAP_EXPENSES.length)];
         let validSpecial = SPECIAL_EXPENSES;
-        if (me.class !== 'Politician') {
-          validSpecial = validSpecial.filter(c => c.id !== 'community_fund');
-        }
         const shuffledSpecial = [...validSpecial].sort(() => 0.5 - Math.random());
         setDrawnExpenseCards([cheap, ...shuffledSpecial.slice(0, 2)]);
       }
@@ -365,6 +363,50 @@ export const GameBoard: React.FC = () => {
     clearActionMessage();
   }, [clearActionMessage]);
 
+  // Bids Subscription & Timer
+  useEffect(() => {
+    if (!game?.voting_active || !game?.id) {
+      setBids([]);
+      return;
+    }
+
+    const fetchBids = async () => {
+      const { data } = await supabase.from('policy_bids').select('*').eq('game_id', game.id);
+      if (data) setBids(data);
+    };
+    fetchBids();
+
+    const channel = supabase.channel(`bids:${game.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'policy_bids', filter: `game_id=eq.${game.id}` }, () => {
+        fetchBids();
+      })
+      .subscribe();
+
+    // Timer logic
+    const updateTimer = () => {
+      if (!game.policy_vote_start) return;
+      const start = new Date(game.policy_vote_start).getTime();
+      const now = new Date().getTime();
+      const diff = Math.max(0, 30 - Math.floor((now - start) / 1000));
+      setTimeLeft(diff);
+      
+      if (diff === 0 && game.voting_active) {
+        // Force resolve if host
+        const isHost = players.length > 0 && me?.id === players[0].id;
+        if (isHost) {
+          resolvePolicyVote();
+        }
+      }
+    };
+    const timer = setInterval(updateTimer, 1000);
+    updateTimer();
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(timer);
+    };
+  }, [game?.voting_active, game?.id, game?.policy_vote_start, players, me?.id]);
+
   useEffect(() => {
     const fetchPolicy = async () => {
       if (game?.current_policy_id) {
@@ -378,7 +420,7 @@ export const GameBoard: React.FC = () => {
   }, [game?.current_policy_id]);
 
   useEffect(() => {
-    if (game?.year && game.year > 10) {
+    if (game?.year && game.year > 5) {
       getWinners().then(setWinners);
     }
   }, [game?.year, getWinners]);
@@ -819,27 +861,27 @@ export const GameBoard: React.FC = () => {
       </div>
 
       {/* 4. Center Log (Cascading Messages) */}
-      <div className="absolute top-[62%] left-1/2 -translate-x-1/2 w-full max-w-lg pointer-events-none z-10 flex flex-col items-center">
-        <div className="flex flex-col items-center gap-1.5">
-          {logs.slice(0, 4).map((log, idx) => {
+      <div className="absolute top-[58%] left-1/2 -translate-x-1/2 w-[85%] max-w-2xl pointer-events-none z-10 flex flex-col items-center gap-2">
+        <div className="flex flex-col items-center gap-2 w-full">
+          {logs.slice(0, 5).map((log, idx) => {
             const p = players.find(p => p.id === log.player_id);
-            const scale = 1 - (idx * 0.1);
-            const opacity = idx === 0 ? 1 : idx === 1 ? 0.8 : idx === 2 ? 0.5 : 0.2;
+            const scale = 1 - (idx * 0.05);
+            const opacity = idx === 0 ? 1 : idx === 1 ? 0.8 : idx === 2 ? 0.6 : idx === 3 ? 0.4 : 0.2;
             
             return (
               <div 
                 key={log.id} 
-                className={`flex items-center gap-2 transition-all duration-700 ease-out ${idx === 0 ? 'animate-in slide-in-from-top-4 fade-in duration-500' : ''}`}
+                className={`flex items-start justify-center gap-2 transition-all duration-700 ease-out w-full ${idx === 0 ? 'animate-in slide-in-from-top-4 fade-in duration-500' : ''}`}
                 style={{ 
                   transform: `scale(${scale})`,
                   opacity: opacity
                 }}
               >
-                <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${p?.class === 'Worker' ? 'bg-blue-500' : p?.class === 'Businessman' ? 'bg-amber-500' : p?.class === 'Banker' ? 'bg-emerald-500' : p?.class === 'Politician' ? 'bg-violet-500' : 'bg-slate-500'}`} />
-                <span className={`text-[10px] font-black uppercase tracking-tighter shrink-0 ${idx === 0 ? 'text-white' : idx === 1 ? 'text-slate-300' : 'text-slate-500'}`}>
-                  {p?.name || 'SYSTEM'}:
-                </span>
-                <p className={`text-[11px] font-bold leading-none ${idx === 0 ? 'text-blue-50' : idx === 1 ? 'text-slate-300' : 'text-slate-500'}`}>
+                <div className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1.5 ${p?.class === 'Worker' ? 'bg-blue-500' : p?.class === 'Businessman' ? 'bg-amber-500' : p?.class === 'Banker' ? 'bg-emerald-500' : p?.class === 'Politician' ? 'bg-violet-500' : 'bg-slate-500'}`} />
+                <p className={`text-[12px] md:text-sm font-bold leading-snug break-words max-w-[90%] text-center ${idx === 0 ? 'text-blue-50' : idx === 1 ? 'text-slate-300' : 'text-slate-500'}`}>
+                  <span className={`font-black uppercase tracking-tighter mr-1 ${idx === 0 ? 'text-white' : idx === 1 ? 'text-slate-300' : 'text-slate-500'}`}>
+                    {p?.name || 'SYSTEM'}:
+                  </span>
                   {log.message}
                 </p>
               </div>
@@ -1049,30 +1091,69 @@ export const GameBoard: React.FC = () => {
                 
                 <div className="space-y-4">
                   <div className="flex justify-between items-center text-xs font-black text-slate-500 uppercase">
-                    <span>Your Weight</span>
+                    <span>Vote Results (Anonymous)</span>
                     <span className="text-white text-lg">
+                      {timeLeft}s Remaining
+                    </span>
+                  </div>
+                  
+                  {/* Live Weight Display */}
+                  <div className="bg-slate-900/80 p-4 rounded-2xl border border-slate-700 flex gap-4">
+                    <div className="flex-1 text-center">
+                       <span className="text-[10px] font-black text-emerald-500 uppercase block mb-1">YES Weights</span>
+                       <span className="text-2xl font-[1000] text-emerald-400">
+                          {bids.reduce((acc, b) => {
+                            const p = players.find(pl => pl.id === b.player_id);
+                            if (b.vote === 'YES' && p) return acc + (p.base_voting_weight || 1) + (p.bonus_voting_weight || 0);
+                            return acc;
+                          }, 0)}
+                       </span>
+                    </div>
+                    <div className="w-px bg-slate-700 h-full self-center" />
+                    <div className="flex-1 text-center">
+                       <span className="text-[10px] font-black text-rose-500 uppercase block mb-1">NO Weights</span>
+                       <span className="text-2xl font-[1000] text-rose-400">
+                          {bids.reduce((acc, b) => {
+                            const p = players.find(pl => pl.id === b.player_id);
+                            if (b.vote === 'NO' && p) return acc + (p.base_voting_weight || 1) + (p.bonus_voting_weight || 0);
+                            return acc;
+                          }, 0)}
+                       </span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center text-[10px] font-black text-slate-500 uppercase px-1">
+                    <span>Your Weight</span>
+                    <span className="text-white">
                       {(() => {
-                        const baseWeight = me?.class === 'Worker' || me?.class === 'Politician' ? 2 : 1;
-                        const bonus = me?.bonus_voting_weight ?? 0;
-                        const total = baseWeight + bonus;
-                        console.log('🗳️ VOTING WEIGHT RENDER DEBUG:', {
-                          timestamp: new Date().toISOString(),
-                          playerClass: me?.class,
-                          baseWeight,
-                          bonus_voting_weight: me?.bonus_voting_weight,
-                          bonus,
-                          total,
-                          meId: me?.id,
-                          fullPlayer: me
-                        });
-                        return bonus > 0 ? `${total} VOTES (+${bonus})` : `${total} VOTES`;
+                        const weight = (me?.base_voting_weight || 1) + (me?.bonus_voting_weight || 0);
+                        const bonus = me?.bonus_voting_weight || 0;
+                        return bonus > 0 ? `${weight} VOTES (+${bonus})` : `${weight} VOTES`;
                       })()}
                     </span>
                   </div>
+
                   <div className="flex gap-3">
-                    <button onClick={() => submitVote('YES')} className={`flex-1 py-4 rounded-xl font-black text-lg transition-all ${me?.vote_confirmed ? 'opacity-50 pointer-events-none' : ''} bg-emerald-600 text-white shadow-[0_4px_0_rgb(5,150,105)] active:translate-y-1`}>YES</button>
-                    <button onClick={() => submitVote('NO')} className={`flex-1 py-4 rounded-xl font-black text-lg transition-all ${me?.vote_confirmed ? 'opacity-50 pointer-events-none' : ''} bg-rose-600 text-white shadow-[0_4px_0_rgb(225,29,72)] active:translate-y-1`}>NO</button>
+                    <button 
+                      onClick={() => submitVote('YES')} 
+                      className={`flex-1 py-4 rounded-xl font-black text-lg transition-all ${me?.vote_confirmed ? 'opacity-50 pointer-events-none' : ''} ${bids.find(b => b.player_id === me?.id)?.vote === 'YES' ? 'bg-emerald-600 ring-2 ring-white ring-offset-4 ring-offset-slate-900' : 'bg-emerald-800 hover:bg-emerald-700'} text-white shadow-lg`}
+                    >
+                      YES
+                    </button>
+                    <button 
+                      onClick={() => submitVote('NO')} 
+                      className={`flex-1 py-4 rounded-xl font-black text-lg transition-all ${me?.vote_confirmed ? 'opacity-50 pointer-events-none' : ''} ${bids.find(b => b.player_id === me?.id)?.vote === 'NO' ? 'bg-rose-600 ring-2 ring-white ring-offset-4 ring-offset-slate-900' : 'bg-rose-800 hover:bg-rose-700'} text-white shadow-lg`}
+                    >
+                      NO
+                    </button>
                   </div>
+                  
+                  <button 
+                    onClick={() => confirmVoteReady()} 
+                    className={`w-full py-4 rounded-xl font-[1000] text-xl transition-all ${me?.vote_confirmed ? 'bg-blue-600 animate-pulse cursor-default' : 'bg-slate-700 hover:bg-slate-600 text-white'} uppercase tracking-widest`}
+                  >
+                    {me?.vote_confirmed ? '✓ READY' : 'Finalize Decision'}
+                  </button>
                 </div>
              </div>
 
@@ -1217,6 +1298,68 @@ export const GameBoard: React.FC = () => {
           <button onClick={endTurn} disabled={isRolling || game?.current_player_id !== me?.id || (!game?.has_rolled && !me?.is_waiting_at_go) || isMoving} className={`px-10 py-5 rounded-[1.5rem] font-black text-xl transition-all duration-300 ${(game?.current_player_id === me?.id && (game?.has_rolled || me?.is_waiting_at_go)) ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_6px_0_rgb(30,64,175)]' : 'bg-slate-800 text-slate-600 cursor-not-allowed opacity-40'}`}>END TURN</button>
         </div>
       </div>
+
+      {/* 8. Win Modal */}
+      {game?.year && game.year > 5 && (
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-3xl z-[200] flex flex-col items-center justify-center p-8 animate-in fade-in duration-1000">
+           <div className="max-w-4xl w-full space-y-12 text-center">
+              <div className="space-y-4">
+                <span className="text-amber-500 font-black text-xs uppercase tracking-[0.5em] block animate-bounce">Economic Cycle Complete</span>
+                <h2 className="text-8xl font-[1000] text-white tracking-tighter uppercase leading-none">Game Over</h2>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                 <div className="bg-white/5 border-2 border-white/10 p-10 rounded-[3rem] space-y-6">
+                    <h3 className="text-2xl font-black text-slate-400 uppercase tracking-widest">The Winners</h3>
+                    <div className="space-y-4">
+                       {winners.length > 0 ? (
+                         winners.map(w => (
+                           <div key={w.id} className="bg-emerald-500/10 border-2 border-emerald-500/50 p-6 rounded-2xl flex items-center justify-between">
+                              <div className="flex items-center gap-4">
+                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-xl text-white ${w.class === 'Worker' ? 'bg-blue-600' : w.class === 'Businessman' ? 'bg-amber-600' : w.class === 'Banker' ? 'bg-emerald-600' : 'bg-violet-600'}`}>
+                                  {w.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="text-left">
+                                  <p className="text-xl font-black text-white">{w.name}</p>
+                                  <p className="text-xs font-bold text-emerald-400 uppercase">{w.class}</p>
+                                </div>
+                              </div>
+                              <span className="text-2xl font-black text-white">${w.balance}</span>
+                           </div>
+                         ))
+                       ) : (
+                         <div className="bg-rose-500/10 border-2 border-rose-500/50 p-10 rounded-2xl">
+                            <p className="text-3xl font-black text-rose-500 uppercase">No One Won</p>
+                            <p className="text-sm font-bold text-rose-300/60 uppercase mt-2">The economy collapsed under the weight of greed.</p>
+                         </div>
+                       )}
+                    </div>
+                 </div>
+
+                 <div className="bg-white/5 border-2 border-white/10 p-10 rounded-[3rem] flex flex-col justify-center space-y-8">
+                    <div className="text-center">
+                       <p className="text-sm font-black text-slate-500 uppercase tracking-widest mb-2">Final Economic Status</p>
+                       <span className={`text-5xl font-[1000] uppercase tracking-tighter ${game.status === 'Growth' ? 'text-emerald-400' : game.status === 'Recession' ? 'text-amber-400' : 'text-rose-500'}`}>
+                          {game.status}
+                       </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                       <div className="bg-black/40 p-4 rounded-2xl"><p className="text-[10px] font-black text-slate-600 uppercase">GDP</p><p className="text-xl font-black text-white">{game.gdp}</p></div>
+                       <div className="bg-black/40 p-4 rounded-2xl"><p className="text-[10px] font-black text-slate-600 uppercase">INF</p><p className="text-xl font-black text-white">{game.inflation}</p></div>
+                       <div className="bg-black/40 p-4 rounded-2xl"><p className="text-[10px] font-black text-slate-600 uppercase">UNP</p><p className="text-xl font-black text-white">{game.unemployment}</p></div>
+                    </div>
+                 </div>
+              </div>
+
+              <button 
+                onClick={() => window.location.reload()} 
+                className="px-12 py-6 bg-white text-black rounded-2xl font-[1000] text-2xl uppercase tracking-widest hover:bg-slate-200 transition-all shadow-[0_10px_0_rgb(203,213,225)] active:translate-y-1 active:shadow-none"
+              >
+                Play Again
+              </button>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

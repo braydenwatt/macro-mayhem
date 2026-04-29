@@ -21,17 +21,20 @@ export const calculateSalary = (
   switch (playerClass) {
     case 'Worker':
       salary = 30 + minSalary; // Special base for Worker (Increments with min wage)
-      if (unemployment <= 2) salary += 30; // 10x bonus
+      // Adaptive: Bonus for low unemployment
+      const unemploymentBonus = (5 - unemployment) * 10;
+      salary += unemploymentBonus;
       break;
     case 'Businessman':
-      salary = 100; // Special base for Businessman
-      if (gdp >= 4) salary += 50; // 10x bonus
+      salary = 50 + (gdp * 10); // Adaptive: Scaled by GDP
       break;
     case 'Banker':
-      if (inflation === 3) salary += 40; // 10x bonus
+      salary = 50;
+      if (inflation === 3) salary += 50; // Bonus for perfect stability
+      if (inflation > 7) salary -= 20; // Penalty for hyperinflation
       break;
     case 'Politician':
-      if (popularity >= 6) salary += 20; // 10x bonus
+      salary = 30 + (popularity * 5); // Adaptive: Scaled by popularity
       break;
   }
 
@@ -56,17 +59,20 @@ export const getSalaryDetails = (
   switch (playerClass) {
     case 'Worker':
       baseSalary = 30 + minSalary; // Special base for Worker (Increments with min wage)
-      if (unemployment <= 2) baseSalary += 30;
+      // Adaptive: Bonus for low unemployment
+      const unemploymentBonus = (5 - unemployment) * 10;
+      baseSalary += unemploymentBonus;
       break;
     case 'Businessman':
-      baseSalary = 100;
-      if (gdp >= 4) baseSalary += 50;
+      baseSalary = 50 + (gdp * 10); // Adaptive: Scaled by GDP
       break;
     case 'Banker':
-      if (inflation === 3) baseSalary += 40;
+      baseSalary = 50;
+      if (inflation === 3) baseSalary += 50; // Bonus for perfect stability
+      if (inflation > 7) baseSalary -= 20; // Penalty for hyperinflation
       break;
     case 'Politician':
-      if (popularity >= 6) baseSalary += 20;
+      baseSalary = 30 + (popularity * 5); // Adaptive: Scaled by popularity
       break;
   }
 
@@ -86,6 +92,5 @@ export const calculateSalaryPayout = (
 };
 
 export const applyMoneyDelta = (currentBalance: number, delta: number): number => {
-  const newBalance = currentBalance + delta;
-  return Math.max(0, newBalance); // Crippling Debt: cannot go below 0
+  return currentBalance + delta;
 };

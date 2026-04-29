@@ -114,7 +114,7 @@ function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Pl
   );
 }
 
-function PlayerLeaderboard({ players, me }: { players: Player[], me: Player | null }) {
+function PlayerLeaderboard({ game, players, me }: { game: GameState | null, players: Player[], me: Player | null }) {
   return (
     <div className="absolute top-4 right-4 z-30 flex flex-col gap-3 w-64">
       <div className="bg-slate-900/90 backdrop-blur-xl border-2 border-slate-800 rounded-3xl p-4 shadow-2xl overflow-hidden">
@@ -127,40 +127,51 @@ function PlayerLeaderboard({ players, me }: { players: Player[], me: Player | nu
         </div>
         
         <div className="space-y-2">
-          {players.map((p) => {
-            const isMe = p.id === me?.id;
-            return (
-              <div key={p.id} className={`flex items-center gap-3 p-2 rounded-2xl transition-all ${isMe ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-800/40 border border-slate-700/30'}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm text-white shadow-lg ${
-                  p.class === 'Worker' ? 'bg-blue-600' : 
-                  p.class === 'Businessman' ? 'bg-amber-600' : 
-                  p.class === 'Banker' ? 'bg-emerald-600' : 
-                  'bg-violet-600'
-                }`}>
-                  {p.name.charAt(0).toUpperCase()}
-                </div>
-                
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1">
-                    <p className="text-[11px] font-black text-white truncate leading-none">{p.name} {isMe && "(YOU)"}</p>
-                    <span className="text-[11px] font-black text-emerald-400 leading-none">${p.balance}</span>
+          {(() => {
+            const currentIndex = players.findIndex(p => p.id === game?.current_player_id);
+            const turnOrderedPlayers = currentIndex === -1 ? players : [
+              ...players.slice(currentIndex),
+              ...players.slice(0, currentIndex)
+            ];
+
+            return turnOrderedPlayers.map((p) => {
+              const isMe = p.id === me?.id;
+              const isCurrent = p.id === game?.current_player_id;
+              return (
+                <div key={p.id} className={`flex items-center gap-3 p-2 rounded-2xl transition-all ${isMe ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-slate-800/40 border border-slate-700/30'} ${isCurrent ? 'ring-2 ring-amber-500/50' : ''}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm text-white shadow-lg ${
+                    p.class === 'Worker' ? 'bg-blue-600' :
+                    p.class === 'Businessman' ? 'bg-amber-600' :
+                    p.class === 'Banker' ? 'bg-emerald-600' :
+                    'bg-violet-600'
+                  }`}>
+                    {p.name.charAt(0).toUpperCase()}
                   </div>
-                  
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">{p.class}</span>
-                      <div className="flex items-center gap-2">
-                        {p.class === 'Politician' && (
-                          <span className="text-[8px] font-black text-violet-400 uppercase">POP: {p.popularity}</span>
-                        )}
-                        <div className={`w-1.5 h-1.5 rounded-full ${p.has_acted_this_year ? 'bg-slate-700' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} title={p.has_acted_this_year ? "Ability Used" : "Ability Ready"} />
-                      </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-1">
+                      <p className="text-[11px] font-black text-white truncate leading-none">
+                        {p.name} {isMe && "(YOU)"}
+                        {isCurrent && <span className="ml-2 text-[9px] text-amber-500 animate-pulse font-black">TURN</span>}
+                      </p>
+                      <span className="text-[11px] font-black text-emerald-400 leading-none">${p.balance}</span>
                     </div>
+
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">{p.class}</span>
+                        <div className="flex items-center gap-2">
+                          {p.class === 'Politician' && (
+                            <span className="text-[8px] font-black text-violet-400 uppercase">POP: {p.popularity}</span>
+                          )}
+                          <div className={`w-1.5 h-1.5 rounded-full ${p.has_acted_this_year ? 'bg-slate-700' : 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} title={p.has_acted_this_year ? "Ability Used" : "Ability Ready"} />
+                        </div>
+                      </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              );
+            });
+          })()}
+        </div>      </div>
     </div>
   );
 }
@@ -449,7 +460,7 @@ function App() {
   if (activeGameId && game && me && game.started) {
     return (
       <div className="h-screen w-screen bg-slate-950 overflow-hidden flex flex-col select-none">
-        <PlayerLeaderboard players={players} me={me} />
+        <PlayerLeaderboard game={game} players={players} me={me} />
 
         <main className="flex-1 relative flex">
           <div className="flex-1 flex items-center justify-center p-8 bg-slate-950/50 backdrop-blur-3xl">

@@ -22,6 +22,7 @@ interface GameStore {
   cancelTrade: (tradeId: string) => Promise<void>;
   respondToTrade: (tradeId: string, accept: boolean) => Promise<void>;
   useExecutiveOrder: (outcome: 'YES' | 'NO') => Promise<void>;
+  confirmVoteReady: () => Promise<void>;
   resolveEventRoll: (type: 'VACATION' | 'PAY_EXPENSES', roll: number) => Promise<void>;
   resolveExpenseChoice: (cardId: string) => Promise<void>;
   clearUnemploymentPending: () => Promise<void>;
@@ -109,6 +110,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const { game, me } = get();
     if (!game || !me) return;
     await gameService.useExecutiveOrder(game.id, me.id, outcome);
+  },
+
+  confirmVoteReady: async () => {
+    const { game, me } = get();
+    if (!game || !me) return;
+    await gameService.confirmVoteReady(game.id, me.id);
   },
 
   resolveEventRoll: async (type: 'VACATION' | 'PAY_EXPENSES', roll: number) => {

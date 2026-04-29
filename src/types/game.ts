@@ -63,6 +63,8 @@ export interface GameState {
   started: boolean;
   tax_rate: number;
   min_salary: number;
+  policy_vote_start?: string | null;
+  square_action_resolved: boolean;
 }
 
 export interface ActionLog {
@@ -100,6 +102,9 @@ export interface PolicyCard {
   unemployment_mod: number;
   money_delta: number;
   money_target: 'all' | 'worker' | 'businessman' | 'banker' | 'none';
+  tax_mod?: number;
+  min_salary_set?: number | null;
+  weight?: number;
 }
 
 export interface ChanceCard {
@@ -111,4 +116,5 @@ export interface ChanceCard {
   money_delta: number;
   money_target: 'all' | 'worker' | 'businessman' | 'banker' | 'none';
   popularity_mod: number;
+  weight?: number;
 }

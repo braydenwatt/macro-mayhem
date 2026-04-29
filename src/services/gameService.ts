@@ -13,6 +13,7 @@ export const SPECIAL_EXPENSES: ExpenseCard[] = [
   { id: 'price_controls', name: 'Price Controls', cost_multiplier: 2, description: 'Lobby for regulations. Inflation -1.', unpaid_effect: 'NONE', target_class: 'all' },
   { id: 'pr_campaign', name: 'PR Campaign', cost_multiplier: 3, description: 'Boost your image. +1 Voting Weight next round.', unpaid_effect: 'NONE', target_class: 'all' },
   { id: 'community_fund', name: 'Community Fund', cost_multiplier: 2, description: 'Invest in the district. Popularity +1.', unpaid_effect: 'NONE', target_class: 'all' },
+  { id: 'public_campaign', name: 'Public Campaign', cost_multiplier: 2, description: 'Gain public support. Popularity +1.', unpaid_effect: 'NONE', target_class: 'all' },
   { id: 'stimulus', name: 'Local Stimulus', cost_multiplier: 3, description: 'Inject capital into local projects. GDP +1.', unpaid_effect: 'NONE', target_class: 'all' },
   { id: 'job_training', name: 'Job Training', cost_multiplier: 3, description: 'Funding for workers. Unemployment -1.', unpaid_effect: 'NONE', target_class: 'all' },
 ];
@@ -67,7 +68,7 @@ export const gameService = {
       Worker: 1,
       Businessman: 2,
       Banker: 1,
-      Politician: 2
+      Politician: 1
     };
 
     const { data, error } = await supabase
@@ -79,7 +80,7 @@ export const gameService = {
           class: playerClass,
           position: 0,
           balance: 100,
-          popularity: playerClass === 'Politician' ? 5 : 0,
+          popularity: playerClass === 'Politician' ? 5 : (playerClass === 'Worker' ? 3 : 0),
           base_voting_weight: votingWeights[playerClass],
           is_waiting_at_go: false,
         },
@@ -130,13 +131,14 @@ export const gameService = {
     const finalPayout = calculateSalaryPayout(baseSalary, isLanding);
 
     if (player.class === 'Worker') {
-      await supabase.from('players').update({ 
+      await supabase.from('players').update({
+        popularity: Math.min(10, player.popularity + 1),
         unemployment_roll_pending: true,
       }).eq('id', playerId);
-      
+
+      await this.logAction(game.id, playerId, 'POPULARITY', `${player.name} gained 1 Public Approval from passing/landing on SALARY.`);
       await this.logAction(game.id, playerId, 'SALARY', `${player.name} reached a SALARY square. Unemployment roll required!`);
-    } else {
-      await supabase.from('players').update({ 
+    } else {      await supabase.from('players').update({ 
         balance: player.balance + finalPayout
       }).eq('id', playerId);
       
@@ -196,11 +198,10 @@ export const gameService = {
     if (type === 'VACATION') {
       const amount = Math.floor((roll * currentSalary) / 5);
       await supabase.from('players').update({ 
-        balance: Math.max(0, player.balance - amount)
+        balance: player.balance - amount 
       }).eq('id', playerId);
       message = `${player.name} went on VACATION! Rolled ${roll} and paid $${amount}.`;
-    } else {
-      // PAY_EXPENSES logic is handled via resolveExpenseChoice now
+    } else {      // PAY_EXPENSES logic is handled via resolveExpenseChoice now
       return;
     }
 
@@ -232,19 +233,15 @@ export const gameService = {
       effectMsg = " (Inflation ↓)";
     } else if (card.id === 'pr_campaign') {
       const newWeight = (player.bonus_voting_weight || 0) + 1;
-      console.log('💰 PR_CAMPAIGN BONUS DEBUG:', {
-        playerId,
-        oldWeight: player.bonus_voting_weight,
-        newWeight,
-        player
-      });
       await supabase.from('players').update({ bonus_voting_weight: newWeight }).eq('id', playerId);
-      const { data: updated } = await supabase.from('players').select('bonus_voting_weight').eq('id', playerId).single();
-      console.log('✅ PR_CAMPAIGN POST-UPDATE VERIFICATION:', { updated });
       effectMsg = " (+1 Voting Weight next round)";
-    } else if (card.id === 'community_fund') {
-      await supabase.from('players').update({ popularity: Math.min(10, player.popularity + 1) }).eq('id', playerId);
-      effectMsg = " (Popularity ↑)";
+    } else if (card.id === 'community_fund' || card.id === 'public_campaign') {
+      if (player.class === 'Politician' || player.class === 'Worker') {
+        await supabase.from('players').update({ popularity: Math.min(10, player.popularity + 1) }).eq('id', playerId);
+        effectMsg = " (Popularity ↑)";
+      } else {
+        effectMsg = " (No Effect)";
+      }
     } else if (card.id === 'stimulus') {
       await supabase.from('games').update({ gdp: Math.min(10, game.gdp + 1) }).eq('id', game.id);
       effectMsg = " (GDP ↑)";
@@ -264,18 +261,24 @@ export const gameService = {
   },
 
   async resolveSquare(
-    gameId: string, 
-    playerId: string, 
-    type: SquareType, 
-    gdp: number, 
+    gameId: string,
+    playerId: string,
+    type: SquareType,
+    gdp: number,
     inflation: number,
     unemployment: number,
     popularity: number,
     taxRate: number,
     minSalary: number
   ): Promise<void> {
-    const { data: player } = await supabase.from('players').select('*').eq('id', playerId).single();
-    if (!player) return;
+    const { data: gameCheck } = await supabase.from('games').select('square_action_resolved').eq('id', gameId).single();
+    if (gameCheck?.square_action_resolved) {
+      console.log('Square action already resolved for this turn.');
+      return;
+    }
+    await supabase.from('games').update({ square_action_resolved: true }).eq('id', gameId);
+
+    const { data: player } = await supabase.from('players').select('*').eq('id', playerId).single();    if (!player) return;
 
     let message = "";
     switch (type) {
@@ -318,7 +321,18 @@ export const gameService = {
     const { data: player } = await supabase.from('players').select('name').eq('id', playerId).single();
     if (!cards || cards.length === 0 || !player) return;
 
-    const card = cards[Math.floor(Math.random() * cards.length)];
+    // Weighted Random Selection
+    const totalWeight = cards.reduce((sum, c) => sum + (c.weight || 5), 0);
+    let random = Math.random() * totalWeight;
+    let card = cards[0];
+    for (const c of cards) {
+      if (random < (c.weight || 5)) {
+        card = c;
+        break;
+      }
+      random -= (c.weight || 5);
+    }
+
     const { data: game } = await supabase.from('games').select('*').eq('id', gameId).single();
     if (!game) return;
 
@@ -386,7 +400,7 @@ export const gameService = {
 
       if (mDelta !== 0 || pDelta !== 0) {
         const pChanceData = {
-          balance: Math.max(0, p.balance + mDelta),
+          balance: p.balance + mDelta,
           popularity: Math.min(10, Math.max(0, p.popularity + pDelta))
         };
         await supabase.from('players').update(pChanceData).eq('id', p.id);
@@ -410,21 +424,34 @@ export const gameService = {
 
   async startPolicyVote(gameId: string): Promise<void> {
     const { data: game } = await supabase.from('games').select('next_policy_id').eq('id', gameId).single();
-    const { data: cards } = await supabase.from('policy_cards').select('id');
+    const { data: cards } = await supabase.from('policy_cards').select('id, weight');
     if (!cards || cards.length === 0) return;
 
     const currentId = game?.next_policy_id || cards[Math.floor(Math.random() * cards.length)].id;
     const otherCards = cards.filter(c => c.id !== currentId);
     const pool = otherCards.length > 0 ? otherCards : cards;
-    const nextId = pool[Math.floor(Math.random() * pool.length)].id;
+
+    // Weighted random selection for nextId
+    const totalWeight = pool.reduce((sum, c) => sum + (c.weight || 5), 0);
+    let random = Math.random() * totalWeight;
+    let nextId = pool[0].id;
+    for (const c of pool) {
+      if (random < (c.weight || 5)) {
+        nextId = c.id;
+        break;
+      }
+      random -= (c.weight || 5);
+    }
 
     const voteData = { 
       current_policy_id: currentId,
       next_policy_id: nextId,
-      voting_active: true 
+      voting_active: true,
+      policy_vote_start: new Date().toISOString()
     };
     await supabase.from('games').update(voteData).eq('id', gameId);
     await supabase.from('players').update({ vote_confirmed: false }).eq('game_id', gameId);
+    await supabase.from('policy_bids').delete().eq('game_id', gameId);
   },
 
   async submitVote(gameId: string, playerId: string, vote: 'YES' | 'NO'): Promise<void> {
@@ -443,9 +470,17 @@ export const gameService = {
     }, { onConflict: 'game_id,player_id,policy_id' });
     
     if (error) console.error('Error submitting vote:', error);
-    await supabase.from('players').update({ vote_confirmed: true }).eq('id', playerId);
-  },
+    },
 
+    async confirmVoteReady(gameId: string, playerId: string): Promise<void> {
+    await supabase.from('players').update({ vote_confirmed: true }).eq('id', playerId);
+
+    // Check if all players are ready
+    const { data: players } = await supabase.from('players').select('vote_confirmed').eq('game_id', gameId);
+    if (players && players.every(p => p.vote_confirmed)) {
+     await this.resolvePolicyVote(gameId);
+    }
+    },
   async createTrade(gameId: string, proposerId: string, targetId: string, money: number, pop: number, forcedVote: 'YES' | 'NO'): Promise<void> {
     await supabase.from('policy_trades').insert({
       game_id: gameId,
@@ -497,7 +532,12 @@ export const gameService = {
         }, { onConflict: 'game_id,player_id,policy_id' });
 
         await supabase.from('policy_trades').update({ status: 'ACCEPTED' }).eq('id', tradeId);
-        await this.logAction(trade.game_id, target.id, 'TRADE', `${target.name} accepted ${proposer.name}'s offer and voted ${trade.forced_vote}!`);
+        
+        let tradeMsg = `${target.name} accepted ${proposer.name}'s offer and voted ${trade.forced_vote}!`;
+        if (proposer.class === 'Worker' && trade.popularity_offered > 0) {
+          tradeMsg = `${proposer.name} used public endorsement to coerce ${target.name}'s vote to ${trade.forced_vote}! ${target.name} gained ${trade.popularity_offered} popularity.`;
+        }
+        await this.logAction(trade.game_id, target.id, 'TRADE', tradeMsg);
       }
     } else {
       await supabase.from('policy_trades').update({ status: 'DECLINED' }).eq('id', tradeId);
@@ -525,9 +565,11 @@ export const gameService = {
       console.error('Error fetching data for vote resolution:', { gErr, bErr });
       return;
     }
-    if (!game || !bids) return;
+    if (!game || !bids || !game.voting_active || !game.current_policy_id) return;
 
     const policy = (game as any).policy_cards;
+    if (!policy) return;
+
     let passed = false;
 
     if (forcedOutcome) {
@@ -535,11 +577,10 @@ export const gameService = {
     } else {
       let yesWeight = 0;
       let noWeight = 0;
-      const weights: Record<PlayerClass, number> = { Worker: 2, Businessman: 1, Banker: 1, Politician: 1 };
 
       for (const bid of bids) {
         const p = bid.players;
-        const weight = (weights[p.class as PlayerClass] || 1) + (p.bonus_voting_weight || 0);
+        const weight = (p.base_voting_weight || 1) + (p.bonus_voting_weight || 0);
         if (bid.vote === 'YES') yesWeight += weight;
         else noWeight += weight;
       }
@@ -548,15 +589,6 @@ export const gameService = {
         const politicianBid = bids.find(b => b.players.class === 'Politician');
         if (politicianBid?.vote === 'YES') passed = true;
       }
-    }
-
-    // POLITICIAN SYNERGY: If Politician voted with Worker
-    const workerBid = bids.find(b => b.players.class === 'Worker');
-    const politicianBid = bids.find(b => b.players.class === 'Politician');
-    if (workerBid && politicianBid && workerBid.vote === politicianBid.vote) {
-      const p = politicianBid.players;
-      await supabase.from('players').update({ popularity: Math.min(10, p.popularity + 1) }).eq('id', p.id);
-      await this.logAction(gameId, p.id, 'POPULARITY', `The Politician voted with the Worker and gained 1 Public Approval!`);
     }
 
     if (passed) {
@@ -568,14 +600,6 @@ export const gameService = {
         tax_rate: Math.max(0, game.tax_rate + (policy.tax_mod || 0)),
         min_salary: newMinSalary
       };
-      if (policy.min_salary_set !== undefined) {
-        console.log('💵 MIN_SALARY INCREASE DEBUG:', {
-          oldMinSalary: game.min_salary,
-          minSalarySetValue: policy.min_salary_set,
-          newMinSalary,
-          policyName: policy.name
-        });
-      }
       await supabase.from('games').update(gdpUpdate).eq('id', gameId);
 
       const { data: players } = await supabase.from('players').select('*').eq('game_id', gameId);
@@ -583,20 +607,22 @@ export const gameService = {
         let delta = 0;
         if (policy.money_target === 'all') delta = policy.money_delta;
         else if (policy.money_target === p.class.toLowerCase()) delta = policy.money_delta;
-        if (delta !== 0) await supabase.from('players').update({ balance: Math.max(0, p.balance + delta) }).eq('id', p.id);
+        if (delta !== 0) await supabase.from('players').update({ balance: p.balance + delta }).eq('id', p.id);
       }
     }
 
+    // Reset vote state
     await supabase.from('players').update({ vote_confirmed: false, financial_stress: false, bonus_voting_weight: 0 }).eq('game_id', gameId);
     await supabase.from('policy_bids').delete().eq('game_id', gameId);
     await supabase.from('policy_trades').delete().eq('game_id', gameId);
-    await supabase.from('games').update({ voting_active: false, current_policy_id: null }).eq('id', gameId);
+    await supabase.from('games').update({ voting_active: false, current_policy_id: null, policy_vote_start: null }).eq('id', gameId);
 
-    let resultMsg = `The policy "${policy.name}" has ${passed ? 'PASSED' : 'FAILED'}.`;
+    let resultMsg = `VOTE_RESULT: The policy "${policy.name}" has ${passed ? 'PASSED' : 'FAILED'}.`;
     if (passed && policy.min_salary_set) {
       resultMsg += ` Minimum wage increased by $${policy.min_salary_set}, boosting Worker salaries!`;
     }
     await this.logAction(gameId, '', 'VOTE_RESULT', resultMsg);
+    await supabase.from('games').update({ last_action_message: resultMsg }).eq('id', gameId);
   },
 
   async useAbility(gameId: string, player: Player, gdp: number, unemployment: number, inflation: number, param?: any): Promise<void> {
@@ -664,7 +690,11 @@ export const gameService = {
     }
 
     await supabase.from('players').update({ position: newPos, is_waiting_at_go: isWaiting }).eq('id', playerId);
-    await supabase.from('games').update({ last_roll: roll, has_rolled: true }).eq('id', gameId);
+    await supabase.from('games').update({ 
+      last_roll: roll, 
+      has_rolled: true,
+      square_action_resolved: false 
+    }).eq('id', gameId);
 
     return roll;
   },
@@ -686,7 +716,7 @@ export const gameService = {
       if (game) {
         await supabase.from('games').update({ 
           year: (game.year || 1) + 1,
-          current_player_id: nextPlayer.id,
+          current_player_id: latestPlayers[0].id, // Reset to first player in order
           has_rolled: false,
           last_roll: 0,
           last_action_message: `Year ${game.year} has concluded. Economic cycle reset!`
@@ -728,11 +758,11 @@ export const gameService = {
         case 'Worker':
           return unemployment <= 2 && p.balance >= 150;
         case 'Businessman':
-          return gdp >= 4 && p.balance >= 300;
+          return p.balance >= 500;
         case 'Banker':
           return inflation === 3 && unemployment !== 5;
         case 'Politician':
-          return p.popularity >= 6 && gdp >= 3;
+          return p.popularity > 7 && p.balance >= 300;
         default:
           return false;
       }
