@@ -22,6 +22,21 @@ const clampIndicator = (value: number) => Math.max(1, Math.min(10, value));
 
 const isBusinessSquare = (type: SquareType) => type === 'VACATION' || type === 'PAY_EXPENSES';
 
+export const meetsWinCondition = (player: Player, gdp: number, inflation: number, unemployment: number): boolean => {
+  switch (player.class) {
+    case 'Worker':
+      return unemployment <= 2 && player.balance >= 150;
+    case 'Businessman':
+      return player.balance >= 500;
+    case 'Banker':
+      return inflation === 3 && unemployment <= 4;
+    case 'Politician':
+      return player.popularity >= 7 && inflation <= 5;
+    default:
+      return false;
+  }
+};
+
 export const gameService = {
   async createGame(): Promise<GameState | null> {
     const { data: cards } = await supabase.from('policy_cards').select('id');
@@ -69,8 +84,8 @@ export const gameService = {
 
   async joinGame(gameId: string, name: string, playerClass: PlayerClass): Promise<Player | null> {
     const votingWeights: Record<PlayerClass, number> = {
-      Worker: 1,
-      Businessman: 2,
+      Worker: 2,
+      Businessman: 1,
       Banker: 1,
       Politician: 1
     };
@@ -84,7 +99,7 @@ export const gameService = {
           class: playerClass,
           position: 0,
           balance: 100,
-          popularity: playerClass === 'Politician' ? 5 : (playerClass === 'Worker' ? 3 : 0),
+          popularity: playerClass === 'Politician' ? 0 : (playerClass === 'Worker' ? 3 : 0),
           base_voting_weight: votingWeights[playerClass],
           is_waiting_at_go: false,
         },
@@ -132,7 +147,7 @@ export const gameService = {
     if (!game) return;
 
     if (game.worker_strike_active && (player.class === 'Businessman' || player.class === 'Politician')) {
-      const strikeMessage = `${player.name} could not collect salary while the worker strike is active.`;
+      const strikeMessage = `Could not collect salary while the worker strike is active.`;
       await this.logAction(game.id, playerId, 'STRIKE', strikeMessage);
       await supabase.from('games').update({ last_action_message: strikeMessage }).eq('id', game.id);
       return;
@@ -147,19 +162,19 @@ export const gameService = {
         unemployment_roll_pending: true,
       }).eq('id', playerId);
 
-      await this.logAction(game.id, playerId, 'POPULARITY', `${player.name} gained 1 Public Approval from passing/landing on SALARY.`);
-      await this.logAction(game.id, playerId, 'SALARY', `${player.name} reached a SALARY square. Unemployment roll required!`);
+      await this.logAction(game.id, playerId, 'POPULARITY', `Gained 1 Public Approval from passing/landing on SALARY.`);
+      await this.logAction(game.id, playerId, 'SALARY', `Reached a SALARY square. Unemployment roll required!`);
     } else {      await supabase.from('players').update({ 
         balance: player.balance + finalPayout
       }).eq('id', playerId);
       
       const landingMsg = isLanding ? " (LANDED!)" : "";
-      await this.logAction(game.id, playerId, 'SALARY', `${player.name} received a salary of $${finalPayout}${landingMsg}.`);
+      await this.logAction(game.id, playerId, 'SALARY', `Received a salary of $${finalPayout}${landingMsg}.`);
     }
 
     if (player.class === 'Banker' && player.position === 0) {
       await supabase.from('players').update({ banker_go_pending: true }).eq('id', playerId);
-      const bankerMessage = `${player.name} passed GO and may shift GDP, inflation, or unemployment.`;
+      const bankerMessage = `Passed GO and may shift GDP, inflation, or unemployment.`;
       await this.logAction(game.id, playerId, 'BANKER_GO', bankerMessage);
       await supabase.from('games').update({ last_action_message: bankerMessage }).eq('id', game.id);
     }
@@ -194,7 +209,7 @@ export const gameService = {
     if (isUnemployed && game.min_salary > 0) {
       resultMsg = `UNEMPLOYED this cycle but received $${finalPayout} (minimum wage).`;
     }
-    await this.logAction(game.id, playerId, 'SALARY', `${player.name} rolled a ${roll} for unemployment: ${resultMsg}`);
+    await this.logAction(game.id, playerId, 'SALARY', `Rolled a ${roll} for unemployment: ${resultMsg}`);
     
     return { isUnemployed, finalPayout, roll };
   },
@@ -225,10 +240,10 @@ export const gameService = {
         const { data: owner } = await supabase.from('players').select('balance,name').eq('id', ownerId).single();
         if (owner) {
           await supabase.from('players').update({ balance: owner.balance + amount }).eq('id', ownerId);
-          message = `${player.name} went on VACATION! Rolled ${roll} and paid $${amount} to ${owner.name}.`;
+          message = `Went on VACATION! Rolled ${roll} and paid $${amount} to ${owner.name}.`;
         }
       }
-      if (!message) message = `${player.name} went on VACATION! Rolled ${roll} and paid $${amount}.`;
+      if (!message) message = `Went on VACATION! Rolled ${roll} and paid $${amount}.`;
     } else {      // PAY_EXPENSES logic is handled via resolveExpenseChoice now
       return;
     }
@@ -287,7 +302,7 @@ export const gameService = {
     }
 
     const ownerMessage = ownerId ? ` The payment went to the business owner instead of the bank.` : '';
-    const message = `${player.name} chose "${card.name}" and paid $${paidAmount}.${effectMsg}${ownerMessage}`;
+    const message = `Chose "${card.name}" and paid $${paidAmount}.${effectMsg}${ownerMessage}`;
     await this.logAction(game.id, playerId, 'EXPENSE', message);
     await supabase.from('games').update({ last_action_message: message }).eq('id', game.id);
     await this.clearEventRollPending(playerId);
@@ -335,7 +350,7 @@ export const gameService = {
         return this.triggerChance(gameId, playerId);
 
       case 'POLICY_VOTE':
-        message = `${player.name} triggered a POLICY VOTE! All players must negotiate.`;
+        message = `Triggered a POLICY VOTE! All players must negotiate.`;
         await supabase.from('games').update({ last_action_message: message }).eq('id', gameId);
         return this.startPolicyVote(gameId);
     }
@@ -376,7 +391,7 @@ export const gameService = {
       gdp: Math.max(1, Math.min(10, game.gdp + card.gdp_mod)),
       inflation: Math.max(1, Math.min(10, game.inflation + card.inflation_mod)),
       unemployment: Math.max(1, Math.min(10, game.unemployment + card.unemployment_mod)),
-      last_action_message: `CHANCE: ${player.name} triggered "${card.name}"!`
+      last_action_message: `CHANCE: triggered "${card.name}"!`
     };
     await supabase.from('games').update(chanceData).eq('id', gameId);
 
@@ -446,7 +461,7 @@ export const gameService = {
     
     const otherPlayersStr = combinedOthers.length > 0 ? `, ${combinedOthers.join(', ')}` : '';
     const globalEffectsStr = effects.length > 0 ? ` [${effects.join(', ')}]` : '';
-    const fullLogMsg = `${player.name} triggered ${card.name}${triggerPlayerEffectsStr}${otherPlayersStr}${globalEffectsStr}`;
+    const fullLogMsg = `Triggered ${card.name}${triggerPlayerEffectsStr}${otherPlayersStr}${globalEffectsStr}`;
     
     await this.logAction(gameId, playerId, 'CHANCE', fullLogMsg);
     await supabase.from('games').update({ last_action_message: `CHANCE: ${fullLogMsg}` }).eq('id', gameId);
@@ -650,7 +665,7 @@ export const gameService = {
     await supabase.from('policy_trades').delete().eq('game_id', gameId);
     await supabase.from('games').update({ voting_active: false, current_policy_id: null, policy_vote_start: null }).eq('id', gameId);
 
-    let resultMsg = `VOTE_RESULT: The policy "${policy.name}" has ${passed ? 'PASSED' : 'FAILED'}.`;
+    let resultMsg = `The policy "${policy.name}" has ${passed ? 'PASSED' : 'FAILED'}.`;
     if (passed && policy.min_salary_set) {
       resultMsg += ` Minimum wage increased by $${policy.min_salary_set}, boosting Worker salaries!`;
     }
@@ -677,9 +692,9 @@ export const gameService = {
             unemployment: Math.min(10, unemployment + 1),
             gdp: Math.max(1, gdp - 1),
             worker_strike_active: true,
-            last_action_message: `${player.name} (Worker) called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`
+            last_action_message: `Called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`
           };
-          actionMessage = `${player.name} called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`;
+          actionMessage = `Called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`;
           actionType = 'STRIKE';
           break;
         case 'Businessman':
@@ -687,14 +702,6 @@ export const gameService = {
         case 'Banker':
           return;
         case 'Politician':
-          if (player.popularity < 3) return;
-          playerUpdate = { popularity: player.popularity - 3, has_acted_this_year: true };
-          gameUpdate = { 
-            unemployment: Math.max(1, unemployment - 1),
-            last_action_message: `${player.name} (Politician) created jobs! Unemployment ↓.`
-          };
-          actionMessage = `${player.name} created jobs! Unemployment ↓.`;
-          actionType = 'POLITICIAN';
           break;
       }
       
@@ -721,7 +728,7 @@ export const gameService = {
     if (indicator === 'inflation') updates.inflation = clampIndicator(game.inflation + delta);
     if (indicator === 'unemployment') updates.unemployment = clampIndicator(game.unemployment + delta);
 
-    const message = `${player.name} used their GO power to move ${indicator.toUpperCase()} ${direction === 'up' ? 'up' : 'down'} by 1.`;
+    const message = `Used their GO power to move ${indicator.toUpperCase()} ${direction === 'up' ? 'up' : 'down'} by 1.`;
     await supabase.from('games').update({ ...updates, last_action_message: message }).eq('id', gameId);
     await supabase.from('players').update({ banker_go_pending: false }).eq('id', playerId);
     await this.logAction(gameId, playerId, 'BANKER_GO', message);
@@ -743,7 +750,7 @@ export const gameService = {
     });
 
     const nextBalance = player.balance - 100;
-    const message = `${player.name} purchased a business on square ${squareIndex} for $100.`;
+    const message = `Purchased a business on square ${squareIndex} for $100.`;
 
     await supabase.from('players').update({ balance: nextBalance, has_acted_this_year: true }).eq('id', playerId);
     await supabase.from('games').update({ last_action_message: message }).eq('id', gameId);
@@ -828,19 +835,6 @@ export const gameService = {
     const { data: players } = await supabase.from('players').select('*').eq('game_id', gameId);
     if (!players) return [];
 
-    return players.filter(p => {
-      switch (p.class) {
-        case 'Worker':
-          return unemployment <= 2 && p.balance >= 150;
-        case 'Businessman':
-          return p.balance >= 500;
-        case 'Banker':
-          return inflation === 3 && unemployment !== 5;
-        case 'Politician':
-          return p.popularity > 7 && p.balance >= 300;
-        default:
-          return false;
-      }
-    });
+    return players.filter((player) => meetsWinCondition(player, gdp, inflation, unemployment));
   }
 };

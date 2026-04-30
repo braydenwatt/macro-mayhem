@@ -12,22 +12,22 @@ import { supabase } from './services/supabase';
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
     tag: "The Laborer",
-    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Politician salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income.",
+    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Politician salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income. Trade popularity for voting influence.",
     icon: "🔨"
   },
   Businessman: {
     tag: "The Investor",
-    desc: "Fixed Weight: 1. Ability: Purchase a business and collect rent from vacation and expense squares once per year.",
+    desc: "Fixed Weight: 1. Ability: Purchase a business once per year and collect rent from vacation and expense squares. Passive: earns bonus income from GDP growth. Can bribe politicians to change policy outcomes.",
     icon: "💼"
   },
   Banker: {
     tag: "The Regulator",
-    desc: "Fixed Weight: 1. When passing GO, choose GDP, inflation, or unemployment to move by 1.",
+    desc: "Fixed Weight: 1. When passing GO, choose GDP, inflation, or unemployment to move by 1. Passive: earns bonuses during economic stability but suffers penalties during high inflation.",
     icon: "🏦"
   },
   Politician: {
     tag: "The Leader",
-    desc: "Fixed Weight: 1. Ability: Executive Order (Forces policy outcome).",
+    desc: "Fixed Weight: 1. Ability: Executive Order (Forces policy outcome). Passive: earns more money when popularity is high.",
     icon: "⚖️"
   }
 };

@@ -3,7 +3,7 @@ import * as PIXI from 'pixi.js';
 import { useGameStore } from '../hooks/useGameStore';
 import { SquareType, Player, PolicyTrade, BusinessOwnership, EconomicIndicator } from '../types/game';
 import { supabase } from '../services/supabase';
-import { gameService, CHEAP_EXPENSES, SPECIAL_EXPENSES } from '../services/gameService';
+import { gameService, CHEAP_EXPENSES, SPECIAL_EXPENSES, meetsWinCondition } from '../services/gameService';
 import { calculateSalary } from '../engine/economy';
 
 const SQUARES_PER_SIDE = 6; 
@@ -138,6 +138,7 @@ export const GameBoard: React.FC = () => {
   
   const [incomingTrades, setIncomingTrades] = useState<PolicyTrade[]>([]);
   const [outgoingTrades, setOutgoingTrades] = useState<PolicyTrade[]>([]);
+  const hasWon = me && game ? meetsWinCondition(me, game.gdp, game.inflation, game.unemployment) : false;
 
   const [isSpinning, setIsSpinning] = useState(false);
   const [spinResult, setSpinResult] = useState<number | null>(null);
@@ -978,6 +979,39 @@ export const GameBoard: React.FC = () => {
                 </div>
               </>
             )}
+            {me?.class === 'Banker' && (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${game?.inflation === 3 ? 'bg-emerald-500 border-emerald-400' : 'border-slate-700'}`}>
+                    {game?.inflation === 3 && <span className="text-[10px] text-white">✓</span>}
+                  </div>
+                  <span className={`text-xs font-bold ${game?.inflation === 3 ? 'text-white' : 'text-slate-500'}`}>Inflation = 3</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${(game?.unemployment || 0) <= 4 ? 'bg-emerald-500 border-emerald-400' : 'border-slate-700'}`}>
+                    {(game?.unemployment || 0) <= 4 && <span className="text-[10px] text-white">✓</span>}
+                  </div>
+                  <span className={`text-xs font-bold ${(game?.unemployment || 0) <= 4 ? 'text-white' : 'text-slate-500'}`}>Unemployment ≤ 4</span>
+                </div>
+              </>
+            )}
+            {me?.class === 'Politician' && (
+              <>
+                <div className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${me.popularity >= 7 ? 'bg-emerald-500 border-emerald-400' : 'border-slate-700'}`}>
+                    {me.popularity >= 7 && <span className="text-[10px] text-white">✓</span>}
+                  </div>
+                  <span className={`text-xs font-bold ${me.popularity >= 7 ? 'text-white' : 'text-slate-500'}`}>Popularity ≥ 7</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${(game?.inflation || 0) <= 5 ? 'bg-emerald-500 border-emerald-400' : 'border-slate-700'}`}>
+                    {(game?.inflation || 0) <= 5 && <span className="text-[10px] text-white">✓</span>}
+                  </div>
+                  <span className={`text-xs font-bold ${(game?.inflation || 0) <= 5 ? 'text-white' : 'text-slate-500'}`}>Inflation ≤ 5</span>
+                </div>
+              </>
+            )}
+          
             <div className="pt-4 border-t border-slate-800">
               <p className="text-[9px] text-center text-slate-600 font-black uppercase tracking-widest">Year {game?.year || 1} / 5</p>
             </div>
