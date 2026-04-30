@@ -53,11 +53,9 @@ function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Pl
   const salarySourceDetails = game ? (() => {
     switch (player.class) {
       case 'Worker': {
-        const unemploymentBonus = (5 - game.unemployment) * 10;
         return [
           `Base wage: $30`,
-          `Minimum wage floor: +$${game.min_salary}`,
-          `Unemployment bonus: ${unemploymentBonus >= 0 ? '+' : '-'}$${Math.abs(unemploymentBonus)}`,
+          `Wage bonus: +$${game.min_salary}`,
           `Tax rate: -$${salaryInfo?.taxAmount ?? 0}`,
           `Final payout: $${salaryInfo?.finalSalary ?? 0}`,
         ];

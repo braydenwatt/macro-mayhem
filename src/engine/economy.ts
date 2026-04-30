@@ -21,9 +21,6 @@ export const calculateSalary = (
   switch (playerClass) {
     case 'Worker':
       salary = 30 + minSalary; // Special base for Worker (Increments with min wage)
-      // Adaptive: Bonus for low unemployment
-      const unemploymentBonus = (5 - unemployment) * 10;
-      salary += unemploymentBonus;
       break;
     case 'Businessman':
       salary = 50 + (gdp * 10); // Adaptive: Scaled by GDP
@@ -60,8 +57,6 @@ export const getSalaryDetails = (
     case 'Worker':
       baseSalary = 30 + minSalary; // Special base for Worker (Increments with min wage)
       // Adaptive: Bonus for low unemployment
-      const unemploymentBonus = (5 - unemployment) * 10;
-      baseSalary += unemploymentBonus;
       break;
     case 'Businessman':
       baseSalary = 50 + (gdp * 10); // Adaptive: Scaled by GDP
