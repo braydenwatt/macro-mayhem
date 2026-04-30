@@ -146,7 +146,7 @@ export const gameService = {
     const { data: game } = await supabase.from('games').select('*').eq('id', player.game_id).single();
     if (!game) return;
 
-    if (game.worker_strike_active && (player.class !== 'Banker' && player.class !== 'Politician')) {
+    if (game.worker_strike_active && (player.class !== 'Banker' && player.class !== 'Worker')) {
       const strikeMessage = `Could not collect salary while the worker strike is active.`;
       await this.logAction(game.id, playerId, 'STRIKE', strikeMessage);
       await supabase.from('games').update({ last_action_message: strikeMessage }).eq('id', game.id);
@@ -692,9 +692,9 @@ export const gameService = {
             unemployment: Math.min(10, unemployment + 1),
             gdp: Math.max(1, gdp - 1),
             worker_strike_active: true,
-            last_action_message: `Called a STRIKE! Worker and Businessman salaries are frozen until minimum wage rises.`
+            last_action_message: `Called a STRIKE! All salaries are frozen until minimum wage rises.`
           };
-          actionMessage = `Called a STRIKE! Worker and Businessman salaries are frozen until minimum wage rises.`;
+          actionMessage = `Called a STRIKE! All salaries are frozen until minimum wage rises.`;
           actionType = 'STRIKE';
           break;
         case 'Businessman':

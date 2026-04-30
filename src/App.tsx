@@ -12,7 +12,7 @@ import { supabase } from './services/supabase';
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
     tag: "The Laborer",
-    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Worker salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income. Trade popularity for voting influence.",
+    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Politician salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income. Trade popularity for voting influence.",
     icon: "🔨"
   },
   Businessman: {
