@@ -12,7 +12,7 @@ import { supabase } from './services/supabase';
 const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string }> = {
   Worker: {
     tag: "The Laborer",
-    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Politician salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income. Trade popularity for voting influence.",
+    desc: "Fixed Weight: 2. Ability: Strike to freeze Businessman and Worker salaries until minimum wage rises. Passive: rolls for unemployment at salary squares. High unemployment risks losing income. Trade popularity for voting influence.",
     icon: "🔨"
   },
   Businessman: {
@@ -152,7 +152,7 @@ function RulebookModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => vo
       onClick={onClose}
     >
       <div
-        className="mx-auto w-full max-w-[67vw] overflow-hidden rounded-[3rem] border-4 border-slate-800 bg-slate-950 shadow-[0_0_120px_rgba(0,0,0,0.65)]"
+        className="mx-auto w-full max-w-[80vw] overflow-hidden rounded-[3rem] border-4 border-slate-800 bg-slate-950 shadow-[0_0_120px_rgba(0,0,0,0.65)]"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-slate-950 to-emerald-600 p-8 sm:p-10">
@@ -975,7 +975,7 @@ function App() {
         <div className="flex justify-center">
           <button
             onClick={() => setShowRulebook(true)}
-            className="inline-flex w-full max-w-md items-center justify-between gap-4 rounded-[1.75rem] border-2 border-blue-500/40 bg-blue-500/10 px-6 py-5 text-left shadow-[0_0_40px_rgba(59,130,246,0.18)] transition-all hover:border-blue-400 hover:bg-blue-500/15 sm:px-8"
+            className="inline-flex w-full max-w-lg items-center justify-between gap-4 rounded-[1.75rem] border-2 border-blue-500/40 bg-blue-500/10 px-6 py-5 text-left shadow-[0_0_40px_rgba(59,130,246,0.18)] transition-all hover:border-blue-400 hover:bg-blue-500/15 sm:px-8"
           >
             <div className="flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500 text-white shadow-lg">

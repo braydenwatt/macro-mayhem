@@ -1080,7 +1080,7 @@ export const GameBoard: React.FC = () => {
       </div>
 
       {/* 4. Center Log (Cascading Messages) */}
-      <div className="absolute top-[58%] left-1/2 -translate-x-1/2 w-[85%] max-w-2xl pointer-events-none z-10 flex flex-col items-center gap-2">
+      <div className="absolute top-[58%] left-1/2 -translate-x-1/2 w-[65%] max-w-md pointer-events-none z-10 flex flex-col items-center gap-2">
         <div className="flex flex-col items-center gap-2 w-full">
           {logs.slice(0, 5).map((log, idx) => {
             const p = players.find(p => p.id === log.player_id);
