@@ -5,7 +5,7 @@ import { useGameSync } from './hooks/useGameSync';
 import { gameService } from './services/gameService';
 import { PlayerClass, Player, GameState } from './types/game';
 import { getSalaryDetails } from './engine/economy';
-import { Users, Plus, Play, UserCircle, Copy, CheckCircle2, Coins, Milestone, Info, LogOut } from 'lucide-react';
+import { Users, Plus, Play, UserCircle, Copy, CheckCircle2, Coins, Milestone, Info, LogOut, BookOpen, ArrowRight, Dice6, Landmark, BarChart3, Trophy, UsersRound, Megaphone, ShieldAlert } from 'lucide-react';
 import './utils/testHelpers'; // Initialize test mode helpers
 import { supabase } from './services/supabase';
 
@@ -32,6 +32,409 @@ const CLASS_INFO: Record<PlayerClass, { tag: string; desc: string; icon: string 
   }
 };
 
+
+const RULEBOOK_CLASSES: Array<{ className: PlayerClass; icon: string; accent: string; summary: string; objective: string }> = [
+  {
+    className: 'Worker',
+    icon: '🔨',
+    accent: 'from-blue-500/25 to-blue-600/5 border-blue-500/30',
+    summary: '2 voting weight, starts with 3 popularity, gains extra popularity on salary turns, and can use Strike to pressure the table.',
+    objective: 'Win with unemployment at 2 or lower and at least $150.',
+  },
+  {
+    className: 'Businessman',
+    icon: '💼',
+    accent: 'from-amber-500/25 to-amber-600/5 border-amber-500/30',
+    summary: '1 voting weight, earns more from GDP growth, can buy businesses once per year, and can use capital to sway votes.',
+    objective: 'Win with at least $500.',
+  },
+  {
+    className: 'Banker',
+    icon: '🏦',
+    accent: 'from-emerald-500/25 to-emerald-600/5 border-emerald-500/30',
+    summary: '1 voting weight, adjusts one economic indicator when passing GO, and thrives when inflation is stable.',
+    objective: 'Win with inflation exactly 3 and unemployment at 4 or lower.',
+  },
+  {
+    className: 'Politician',
+    icon: '⚖️',
+    accent: 'from-violet-500/25 to-violet-600/5 border-violet-500/30',
+    summary: '1 voting weight, starts at 0 popularity, can force one policy outcome per year, and earns more from popularity.',
+    objective: 'Win with popularity at 7 or higher and inflation at 5 or lower.',
+  },
+];
+
+const ECONOMY_INDICATORS = [
+  {
+    title: 'GDP',
+    icon: BarChart3,
+    color: 'text-blue-400',
+    accent: 'border-blue-500/30 bg-blue-500/10',
+    summary: 'Boosts Businessman income and powers growth effects.',
+  },
+  {
+    title: 'Inflation',
+    icon: ShieldAlert,
+    color: 'text-amber-400',
+    accent: 'border-amber-500/30 bg-amber-500/10',
+    summary: 'Affects Banker bonuses and can punish salary stability.',
+  },
+  {
+    title: 'Unemployment',
+    icon: UsersRound,
+    color: 'text-emerald-400',
+    accent: 'border-emerald-500/30 bg-emerald-500/10',
+    summary: 'Shapes Worker payouts and is a key win condition metric.',
+  },
+];
+
+const RULEBOOK_SQUARES = [
+  {
+    title: 'GO / Salary',
+    icon: Coins,
+    accent: 'border-emerald-500/30 bg-emerald-500/10',
+    text: 'Passing or landing on GO pays salary. Reaching the end of the board sends you back to GO and marks you waiting there.',
+  },
+  {
+    title: 'Policy Vote',
+    icon: Megaphone,
+    accent: 'border-violet-500/30 bg-violet-500/10',
+    text: 'Landing here starts or supports a policy vote. Trades and the Politician’s Executive Order can change the result.',
+  },
+  {
+    title: 'Vacation',
+    icon: Landmark,
+    accent: 'border-blue-500/30 bg-blue-500/10',
+    text: 'Triggers an expense-style event and can send money to a business owner if the square is owned.',
+  },
+  {
+    title: 'Pay Expenses',
+    icon: ShieldAlert,
+    accent: 'border-rose-500/30 bg-rose-500/10',
+    text: 'Choose one card, pay the cost, and resolve any global effect such as inflation, popularity, GDP, or unemployment changes.',
+  },
+  {
+    title: 'Chance',
+    icon: Dice6,
+    accent: 'border-amber-500/30 bg-amber-500/10',
+    text: 'Draw a random event card that can alter money, popularity, or the economy.',
+  },
+];
+
+function RulebookModal({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[220] overflow-y-auto bg-black/80 px-4 py-6 backdrop-blur-2xl sm:px-6 sm:py-10"
+      onClick={onClose}
+    >
+      <div
+        className="mx-auto w-full max-w-[67vw] overflow-hidden rounded-[3rem] border-4 border-slate-800 bg-slate-950 shadow-[0_0_120px_rgba(0,0,0,0.65)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="relative overflow-hidden bg-gradient-to-br from-blue-600 via-slate-950 to-emerald-600 p-8 sm:p-10">
+          <div className="pointer-events-none absolute inset-0 opacity-20" style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.35) 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
+          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl space-y-4">
+              <div className="inline-flex items-center gap-3 rounded-full border border-white/15 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.4em] text-white/80">
+                <BookOpen className="h-4 w-4" />
+                Rulebook
+              </div>
+              <div className="space-y-3">
+                <h2 className="text-5xl font-[1000] tracking-tighter text-white sm:text-7xl">How to Play</h2>
+                <p className="max-w-2xl text-sm font-bold uppercase tracking-[0.2em] text-white/70 sm:text-base">
+                  4 players, 24 spaces, 3 public indicators, and a five-year cycle of salary, policy, and negotiation.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border-2 border-white/15 bg-black/20 px-5 py-3 text-sm font-black uppercase tracking-widest text-white transition-all hover:bg-black/35"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="relative mt-8 grid gap-4 md:grid-cols-3">
+            {ECONOMY_INDICATORS.map((indicator) => {
+              const Icon = indicator.icon;
+
+              return (
+                <div key={indicator.title} className={`rounded-[1.75rem] border-2 p-5 backdrop-blur ${indicator.accent}`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.4em] text-white/60">Public Indicator</p>
+                      <h3 className={`mt-2 text-2xl font-[1000] uppercase tracking-tight text-white`}>{indicator.title}</h3>
+                    </div>
+                    <div className={`rounded-2xl bg-white/10 p-3 ${indicator.color}`}>
+                      <Icon className="h-5 w-5" />
+                    </div>
+                  </div>
+                  <p className="mt-4 text-sm font-bold leading-relaxed text-white/70">{indicator.summary}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="max-h-[72vh] space-y-8 overflow-y-auto p-6 sm:p-10">
+          <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="rounded-2xl bg-blue-500/15 p-3 text-blue-400"><Info className="h-5 w-5" /></div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Overview</p>
+                  <h3 className="text-3xl font-[1000] tracking-tight text-white">The Goal of the Cycle</h3>
+                </div>
+              </div>
+              <div className="space-y-4 text-sm leading-relaxed text-slate-300 sm:text-base">
+                <p>
+                  Macro Mayhem is a 4-player economic strategy game where each player becomes a Worker, Businessman, Banker, or Politician.
+                </p>
+                <p>
+                  Move around the 24-space board, collect salary, react to events, vote on policies, trade influence, and try to satisfy your class win condition before year 5 ends.
+                </p>
+                <p>
+                  The public economy matters at all times. GDP, inflation, and unemployment change salary, special abilities, policy outcomes, and who can win.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+              <div className="mb-5 flex items-center gap-3">
+                <div className="rounded-2xl bg-emerald-500/15 p-3 text-emerald-400"><ArrowRight className="h-5 w-5" /></div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Setup</p>
+                  <h3 className="text-3xl font-[1000] tracking-tight text-white">Before the First Roll</h3>
+                </div>
+              </div>
+              <div className="space-y-4 text-sm leading-relaxed text-slate-300 sm:text-base">
+                <p>One player hosts a session. Everyone else joins with the session code shown in the lobby.</p>
+                <p>Each class can only be taken by one player.</p>
+                <p>Everyone starts with $100, plus a class-specific popularity value and voting weight.</p>
+              </div>
+              <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {['Host', 'Join', 'Pick Class', 'Start Fiscal Cycle'].map((step, index) => (
+                  <div key={step} className="rounded-2xl border border-slate-700 bg-slate-950/70 px-3 py-4 text-center">
+                    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">0{index + 1}</div>
+                    <div className="mt-2 text-sm font-black text-white">{step}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="rounded-2xl bg-violet-500/15 p-3 text-violet-400"><Dice6 className="h-5 w-5" /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Turn Flow</p>
+                <h3 className="text-3xl font-[1000] tracking-tight text-white">What Happens On Your Turn</h3>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-5">
+              {[
+                'Roll the dice',
+                'Move around the board',
+                'Resolve the square you landed on',
+                'Use your class action if available',
+                'End your turn when all required effects are resolved',
+              ].map((item, index) => (
+                <div key={item} className="rounded-[1.75rem] border-2 border-slate-800 bg-slate-950/80 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Step {index + 1}</div>
+                    {index < 4 && <ArrowRight className="h-4 w-4 text-slate-600 lg:hidden" />}
+                  </div>
+                  <p className="mt-4 text-lg font-black leading-tight text-white">{item}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+            <div className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+              <div className="mb-6 flex items-center gap-3">
+                <div className="rounded-2xl bg-amber-500/15 p-3 text-amber-400"><Milestone className="h-5 w-5" /></div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Board Spaces</p>
+                  <h3 className="text-3xl font-[1000] tracking-tight text-white">Squares That Matter</h3>
+                </div>
+              </div>
+
+              <div className="grid gap-3">
+                {RULEBOOK_SQUARES.map((square) => {
+                  const Icon = square.icon;
+
+                  return (
+                    <div key={square.title} className={`rounded-[1.5rem] border-2 p-4 ${square.accent}`}>
+                      <div className="flex items-start gap-4">
+                        <div className="rounded-2xl bg-white/10 p-3 text-white">
+                          <Icon className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-lg font-black uppercase tracking-tight text-white">{square.title}</h4>
+                          <p className="mt-1 text-sm leading-relaxed text-white/75">{square.text}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+                <div className="mb-6 flex items-center gap-3">
+                  <div className="rounded-2xl bg-blue-500/15 p-3 text-blue-400"><UsersRound className="h-5 w-5" /></div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Class Roles</p>
+                    <h3 className="text-3xl font-[1000] tracking-tight text-white">Who Does What</h3>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {RULEBOOK_CLASSES.map((entry) => (
+                    <div key={entry.className} className={`rounded-[1.75rem] border-2 bg-gradient-to-br p-5 ${entry.accent}`}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-white/60">{entry.className}</p>
+                          <h4 className="mt-1 text-2xl font-[1000] tracking-tight text-white">{entry.icon} {entry.className}</h4>
+                        </div>
+                        <div className="rounded-2xl bg-white/10 px-3 py-2 text-xs font-black uppercase tracking-widest text-white/80">
+                          Class Info
+                        </div>
+                      </div>
+                      <p className="mt-4 text-sm leading-relaxed text-white/75">{entry.summary}</p>
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/50">Win Condition</p>
+                        <p className="mt-2 text-sm font-bold leading-relaxed text-white">{entry.objective}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="rounded-2xl bg-rose-500/15 p-3 text-rose-400"><Trophy className="h-5 w-5" /></div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Negotiation</p>
+                    <h3 className="text-3xl font-[1000] tracking-tight text-white">Trading Votes</h3>
+                  </div>
+                </div>
+                <div className="space-y-3 text-sm leading-relaxed text-slate-300 sm:text-base">
+                  <p>During policy votes, players can trade money, popularity, and even forced votes to influence the result.</p>
+                  <p>Businessman, Banker, and Politician trade with money. The Worker trades with popularity points instead of cash.</p>
+                  <p>The current player usually controls when a vote is finalized, but the vote can also resolve when time runs out.</p>
+                </div>
+              </div>
+
+              <div className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+                <div className="mb-5 flex items-center gap-3">
+                  <div className="rounded-2xl bg-emerald-500/15 p-3 text-emerald-400"><Coins className="h-5 w-5" /></div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Salary & Economy</p>
+                    <h3 className="text-3xl font-[1000] tracking-tight text-white">How Income Works</h3>
+                  </div>
+                </div>
+                <div className="grid gap-3 text-sm leading-relaxed text-slate-300 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
+                    <p className="font-black uppercase tracking-widest text-white">Worker</p>
+                    <p className="mt-2">$30 + current minimum wage, plus extra popularity every time salary is gained.</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
+                    <p className="font-black uppercase tracking-widest text-white">Businessman</p>
+                    <p className="mt-2">$50 + GDP × 10.</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
+                    <p className="font-black uppercase tracking-widest text-white">Banker</p>
+                    <p className="mt-2">$50, +$50 at inflation 3, and -$20 when inflation is 7 or higher.</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
+                    <p className="font-black uppercase tracking-widest text-white">Politician</p>
+                    <p className="mt-2">$30 + popularity × 5.</p>
+                  </div>
+                </div>
+                <p className="mt-4 text-sm leading-relaxed text-slate-400">
+                  Taxes are applied to salary, and minimum salary rules can raise the floor for Workers.
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-2xl bg-amber-500/15 p-3 text-amber-400"><Landmark className="h-5 w-5" /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Winning</p>
+                <h3 className="text-3xl font-[1000] tracking-tight text-white">Who Wins After Year 5</h3>
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {RULEBOOK_CLASSES.map((entry) => (
+                <div key={`win-${entry.className}`} className="rounded-[1.75rem] border border-slate-700 bg-slate-950/80 p-5">
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">{entry.className}</p>
+                  <p className="mt-3 text-sm font-bold leading-relaxed text-white">{entry.objective}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-5 text-sm leading-relaxed text-slate-400">
+              If multiple players satisfy their conditions at the end of the game, they all appear as winners.
+            </p>
+          </section>
+
+          <section className="rounded-[2.5rem] border-2 border-slate-800 bg-slate-900/70 p-6 sm:p-8">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="rounded-2xl bg-slate-500/20 p-3 text-slate-300"><Play className="h-5 w-5" /></div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Quick Start</p>
+                <h3 className="text-3xl font-[1000] tracking-tight text-white">Jump In Fast</h3>
+              </div>
+            </div>
+            <div className="grid gap-3 text-sm font-bold leading-relaxed text-slate-300 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                'Join a lobby and pick a unique class.',
+                'Share the session code with other players.',
+                'Press Start Fiscal Cycle when everyone is ready.',
+                'Roll, move, resolve the square, and use your class powers.',
+              ].map((item, index) => (
+                <div key={item} className="rounded-2xl border border-slate-700 bg-slate-950/80 p-4">
+                  <div className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">0{index + 1}</div>
+                  <p className="mt-2 text-white">{item}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
 function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Player, game: GameState | null, isMe?: boolean, position: 'bottom' | 'top' | 'left' | 'right', onLeave?: () => void }) {
   const containerClasses = {
     bottom: "flex-row w-full h-24 bg-slate-900/90 backdrop-blur-xl border-t border-slate-700 px-8 py-4 items-center justify-between",
@@ -40,6 +443,7 @@ function PlayerInventory({ player, game, isMe, position, onLeave }: { player: Pl
     right: "flex-col w-24 h-full bg-slate-900/40 border-l border-slate-800 py-8 px-2 items-center",
   };
 
+  const [showRulebook, setShowRulebook] = useState(false);
   const salaryInfo = game ? getSalaryDetails(
     player.class,
     game.gdp,
@@ -333,6 +737,7 @@ function App() {
   const [selectedClass, setSelectedClass] = useState<PlayerClass | ''>('');
   const [isJoining, setIsJoining] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showRulebook, setShowRulebook] = useState(false);
 
   const { game, me, players = [], setMe, startGame } = useGameStore();
 
@@ -355,6 +760,19 @@ function App() {
   useEffect(() => {
     if (me) localStorage.setItem('eco_me', JSON.stringify(me));
   }, [me]);
+
+  useEffect(() => {
+    if (!showRulebook) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showRulebook]);
 
   // Recovery effect
   useEffect(() => {
@@ -554,6 +972,27 @@ function App() {
           </p>
         </div>
 
+        <div className="flex justify-center">
+          <button
+            onClick={() => setShowRulebook(true)}
+            className="inline-flex w-full max-w-md items-center justify-between gap-4 rounded-[1.75rem] border-2 border-blue-500/40 bg-blue-500/10 px-6 py-5 text-left shadow-[0_0_40px_rgba(59,130,246,0.18)] transition-all hover:border-blue-400 hover:bg-blue-500/15 sm:px-8"
+          >
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500 text-white shadow-lg">
+                <BookOpen className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-300">Rulebook</div>
+                <div className="text-xl font-[1000] uppercase tracking-tight text-white">How to Play</div>
+              </div>
+            </div>
+            <div className="hidden items-center gap-2 rounded-full bg-white/5 px-3 py-2 text-[10px] font-black uppercase tracking-[0.3em] text-slate-300 sm:flex">
+              Open guide
+              <ArrowRight className="h-4 w-4" />
+            </div>
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Host Card */}
           <div className="bg-slate-900 border-4 border-slate-800 p-10 rounded-[3rem] space-y-8 hover:border-blue-500/50 transition-colors shadow-2xl group">
@@ -606,6 +1045,8 @@ function App() {
            </div>
         </div>
       </div>
+
+      <RulebookModal isOpen={showRulebook} onClose={() => setShowRulebook(false)} />
     </div>
   );
 }
