@@ -692,9 +692,9 @@ export const gameService = {
             unemployment: Math.min(10, unemployment + 1),
             gdp: Math.max(1, gdp - 1),
             worker_strike_active: true,
-            last_action_message: `Called a STRIKE! All salaries are frozen until minimum wage rises.`
+            last_action_message: `Called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`
           };
-          actionMessage = `Called a STRIKE! All salaries are frozen until minimum wage rises.`;
+          actionMessage = `Called a STRIKE! Businessman and Politician salaries are frozen until minimum wage rises.`;
           actionType = 'STRIKE';
           break;
         case 'Businessman':
